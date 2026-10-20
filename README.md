@@ -9,6 +9,96 @@ combinando **orquestación low-code (n8n)**, **enriquecimiento contextual** y
 
 ---
 
+## 🚀 Inicio rápido (otra PC · lo mínimo)
+
+Necesitas **solo 3 cosas**: **Python 3.11+**, **Node.js 20+** y **PostgreSQL (14+)** corriendo.
+Nada más es obligatorio (ver tabla de abajo).
+
+```bash
+# 0) Clonar y configurar entorno
+git clone <url-del-repo> && cd SEMANA09
+cp .env.example .env
+
+# 1) Base de datos (una sola vez)
+psql -U postgres <<'SQL'
+CREATE ROLE soclite LOGIN PASSWORD 'soclite' CREATEDB;
+CREATE DATABASE soclite OWNER soclite;
+SQL
+
+# 2) Backend
+python3 -m venv .venv
+source .venv/bin/activate            # Windows: .venv\Scripts\activate
+pip install -r backend/requirements.txt
+cd backend
+python -m app.seed                   # crea el esquema + datos demo (idempotente)
+uvicorn app.main:app --port 8000     # API en http://127.0.0.1:8000
+```
+
+```bash
+# 3) Frontend (otra terminal, desde la raíz del repo)
+cd frontend
+npm install
+npm run dev                          # http://localhost:5173
+```
+
+**Verificación en 30 segundos**
+
+1. `curl http://127.0.0.1:8000/api/v1/health` → `{"api":"ok","database":"ok",...}`
+2. Abre `http://localhost:5173` y entra con **`admin` / `Admin123!`** (o `analyst` / `Analyst123!`).
+3. Verás el dashboard con 60 alertas demo, ~12 pendientes de triar y bitácora con eventos.
+
+> **Windows:** los mismos pasos, pero activa el venv con `.venv\Scripts\activate` y usa
+> `py -3 -m venv .venv`. PostgreSQL: instalador oficial o `docker run -e POSTGRES_PASSWORD=... -p 5432:5432 postgres:16`.
+> Si no puedes crear la BD con tu usuario, ejecuta el `CREATE ROLE/DATABASE` con un superusuario.
+
+> **Migraciones:** `python -m app.seed` crea el esquema automáticamente. Como mantenedor puedes
+> usar Alembic en su lugar: `alembic upgrade head` (historial en `backend/alembic/versions/`).
+
+### ❌ Lo que NO necesitas para que funcione
+
+Todo lo siguiente es **opcional**. Sin ello el sistema arranca y opera completo
+(triaje, dashboard, reportes, auditoría, RBAC):
+
+| Componente | Sin él… | Si lo añades después |
+|---|---|---|
+| **Ollama + `llama3.1`** | El triaje usa el **fallback heurístico** determinista (motor `heuristic`) | Instala [ollama.com](https://ollama.com) → `ollama pull llama3.1` → el triaje usa LLM real (`engine: llm`). Config: `OLLAMA_BASE_URL`, `OLLAMA_MODEL` |
+| **API key VirusTotal** | Enriquecimiento en **modo simulado** determinista (`ENRICHMENT_MOCK=true`) | `VIRUSTOTAL_API_KEY=...` en `.env` y `ENRICHMENT_MOCK=false` |
+| **API key AbuseIPDB** | Igual que arriba (respuestas simuladas con IPs de inteligencia local) | `ABUSEIPDB_API_KEY=...` en `.env` |
+| **n8n** | El flujo low-code; la API ya recibe alertas por webhook y tría por endpoint/ UI | `docker compose --profile n8n up -d` e importar `n8n/workflows/soc_lite_triage.json` |
+| **Slack / osTicket / Redmine** | Notificaciones y tickets (solo del workflow n8n) | Credenciales dentro de n8n |
+| **DeepSeek / OpenAI u otros LLM en la nube** | Nada: **no están integrados** (por diseño, las alertas no salen hacia APIs externas de LLM; solo Ollama local) | — |
+| **Docker** | Usas la instalación manual de arriba | Alternativa completa: `docker compose up -d postgres api` (+ perfiles `frontend`, `n8n`, `llm`) |
+| **Wazuh / OPNsense** | Las 60 alertas demo del seed + webhook vacío bastan para probar | Apunta el webhook de Wazuh/OPNsense/n8n a `POST /api/v1/alerts/webhook` con cabecera `X-Webhook-Token` |
+
+### 🔑 Variables de entorno mínimas (`.env`)
+
+Solo estas 3 importan para arrancar; **el resto tiene defaults funcionales** (ver `.env.example`):
+
+| Variable | Valor por defecto | Para qué |
+|---|---|---|
+| `DATABASE_URL` | `postgresql+asyncpg://soclite:soclite@localhost:5432/soclite` | conexión a PostgreSQL |
+| `JWT_SECRET` | `change-me-in-production` | firma de tokens — **cámbiala en cualquier despliegue real** |
+| `WEBHOOK_TOKEN` | `soclite-webhook-token` | autenticación de `POST /api/v1/alerts/webhook` |
+
+### 🧪 Credenciales semilla
+
+| Usuario | Contraseña | Rol | Permisos |
+|---|---|---|---|
+| `admin` | `Admin123!` | admin | todo (usuarios, auditoría global, reportes) |
+| `analyst` | `Analyst123!` | analyst | alertas, triaje, incidentes, reportes, auditoría |
+| `viewer` | `Viewer123!` | viewer | solo lectura de dashboard/alertas/reportes (auditoría propia) |
+
+### 🐳 Alternativa: Docker Compose
+
+```bash
+docker compose up -d postgres api          # API + BD (siembra automática al arrancar)
+docker compose --profile frontend up -d    # + nginx sirviendo el SPA en :5173
+docker compose --profile n8n up -d         # + n8n en :5678 (opcional)
+docker compose --profile llm up -d         # + ollama en :11434 (opcional)
+```
+
+---
+
 ## Stack
 
 | Capa | Tecnología | Justificación |
@@ -58,46 +148,23 @@ combinando **orquestación low-code (n8n)**, **enriquecimiento contextual** y
 
 Detalle completo: [`docs/architecture.md`](docs/architecture.md) · Datasets públicos: [`docs/datasets.md`](docs/datasets.md)
 
-## Puesta en marcha (desarrollo local)
+## Opcionales: LLM real y enriquecimiento real
 
-Requisitos: Python 3.11+, Node 20+, PostgreSQL en ejecución, Ollama (opcional).
-
-```bash
-# 1) Base de datos
-psql -U postgres -c "CREATE ROLE soclite LOGIN PASSWORD 'soclite' CREATEDB;"
-psql -U postgres -c "CREATE DATABASE soclite OWNER soclite;"
-
-# 2) Backend
-python3 -m venv .venv && source .venv/bin/activate
-pip install -r backend/requirements.txt
-cd backend
-alembic upgrade head                 # crea el esquema
-python -m app.seed --reset           # roles, usuarios, alertas, bitácora (idempotente)
-uvicorn app.main:app --port 8000
-
-# 3) Frontend (otra terminal)
-cd frontend && npm install && npm run dev   # http://localhost:5173 (proxy /api → :8000)
-
-# 4) LLM local (opcional; sin él actúa el fallback heurístico)
-ollama pull llama3.1 && ollama serve
-```
-
-### Docker Compose
+**Ollama (LLM local, recomendado para privacidad total):**
 
 ```bash
-docker compose up -d postgres api          # API + BD (siembra automática al arrancar)
-docker compose --profile frontend up -d    # + nginx sirviendo el SPA en :5173
-docker compose --profile n8n up -d         # + n8n en :5678
-docker compose --profile llm up -d         # + ollama en :11434
+# instalar desde https://ollama.com (Linux/macOS/Windows) y luego:
+ollama pull llama3.1
+ollama serve                            # default: http://localhost:11434
 ```
+El backend lo detecta solo (`GET /api/v1/health` muestra `llm: ok`); si no responde,
+el triaje cae al fallback heurístico sin romper el flujo. Config en `.env`:
+`OLLAMA_BASE_URL`, `OLLAMA_MODEL=llama3.1`, `LLM_TIMEOUT_SECONDS`, `TRIAGE_FALLBACK_ENABLED=true`.
 
-## Credenciales semilla
-
-| Usuario | Contraseña | Rol | Permisos |
-|---|---|---|---|
-| `admin` | `Admin123!` | admin | todo (usuarios, auditoría global, reportes) |
-| `analyst` | `Analyst123!` | analyst | alertas, triaje, incidentes, reportes, auditoría |
-| `viewer` | `Viewer123!` | viewer | solo lectura de dashboard/alertas/reportes (auditoría propia) |
+**Enriquecimiento real (opcional):** crear keys gratuitas en [VirusTotal](https://www.virustotal.com/gui/my-apikey)
+y [AbuseIPDB](https://www.abuseipdb.com/account/api), ponerlas en `.env` y fijar `ENRICHMENT_MOCK=false`.
+Con `ENRICHMENT_MOCK=true` (default) se usan respuestas simuladas deterministas +
+una lista local de inteligencia (Tor/botnet/C2 conocidas).
 
 ## API principal (`/api/v1`)
 
@@ -109,15 +176,15 @@ docker compose --profile llm up -d         # + ollama en :11434
 | GET | `/alerts/{id}` | alerts.read | detalle + triaje + enriquecimiento + payload |
 | POST | `/alerts` | alerts.write | creación manual |
 | POST | `/alerts/webhook` | `X-Webhook-Token` | ingesta desde Wazuh/OPNsense/n8n (dedup) |
-| POST | `/triage/{id}` | triage.execute | ejecuta agente LangChain (LLM u Ollama) |
+| POST | `/triage/{id}` | triage.execute | ejecuta agente LangChain (Ollama o fallback) |
 | GET | `/metrics/overview` | metrics.read | KPIs: MTTT, %FP, severidades, top orígenes, tendencia |
 | GET | `/reports?type=&format=` | reports.export | PDF / Word / Excel (operacional o de gestión) |
-| GET | `/audit` | audit.read | bitácora (admin: global · resto: propio) |
+| GET | `/audit` | audit.read | bitácora (admin/analyst: global · viewer: propio) |
 | POST | `/audit` | audit.write | entrada manual (nodo 10 de n8n) |
 | CRUD | `/users`, `/incidents` | users.manage / incidents.* | RBAC e incidentes |
 | GET | `/health` | público | estado API + BD + Ollama |
 
-## Workflow n8n
+## Workflow n8n (opcional)
 
 Importar [`n8n/workflows/soc_lite_triage.json`](n8n/workflows/soc_lite_triage.json) en n8n
 (*Workflows → Import from File*) y configurar:
