@@ -1,0 +1,606 @@
+{
+  "name": "SOC-Lite - Triaje automatico de alertas Wazuh/OPNsense",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "soc-alert",
+        "responseMode": "onReceived",
+        "responseData": "firstEntryJson",
+        "options": {}
+      },
+      "id": "node-01-webhook",
+      "name": "1. Webhook entrada",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [-1180, 0],
+      "webhookId": "soclite-soc-alert"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "cond-severidad",
+              "leftValue": "={{ $json.severity }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEquals",
+                "singleValue": true
+              }
+            },
+            {
+              "id": "cond-duplicado",
+              "leftValue": "={{ $json.is_duplicate }}",
+              "rightValue": "true",
+              "operator": {
+                "type": "boolean",
+                "operation": "notEquals",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "node-02-if",
+      "name": "2. IF filtra duplicados y severidad < media",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [-960, 0]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "WITH ins AS (\n  INSERT INTO alerts (source, rule_id, severity, title, description, src_ip, dst_ip, raw_payload, dedup_hash, status, created_at)\n  VALUES (\n    {{ JSON.stringify($json.source || 'wazuh') }},\n    {{ JSON.stringify($json.rule_id || $json.rule?.id || null) }},\n    {{ JSON.stringify($json.severity || 'media') }},\n    {{ JSON.stringify($json.title || $json.rule?.description || 'Alerta sin titulo') }},\n    {{ JSON.stringify($json.description || null) }},\n    {{ JSON.stringify($json.src_ip || $json.data?.src_ip || null) }},\n    {{ JSON.stringify($json.dst_ip || $json.data?.dst_ip || null) }},\n    {{ JSON.stringify(JSON.stringify($json)) }}::jsonb,\n    md5({{ JSON.stringify(JSON.stringify($json)) }}),\n    'pending',\n    NOW()\n  )\n  ON CONFLICT (dedup_hash) DO NOTHING\n  RETURNING id\n)\nSELECT COALESCE(\n  (SELECT id FROM ins),\n  (SELECT id FROM alerts WHERE dedup_hash = md5({{ JSON.stringify(JSON.stringify($json)) }}))\n) AS alert_id;",
+        "options": {}
+      },
+      "id": "node-03-postgres-alerta",
+      "name": "3. PostgreSQL persiste alerta (pending)",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [-740, 0],
+      "credentials": {
+        "postgresDatabase": {
+          "id": "REEMPLAZAR",
+          "name": "PostgreSQL SOC-Lite"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.SOC_API_URL || 'http://localhost:8000' }}/api/v1/triage/{{ $json.alert_id }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.SOC_API_TOKEN || 'REEMPLAZAR_TOKEN' }}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 120000,
+          "retry": {
+            "retryOnFail": true,
+            "maxTries": 3,
+            "waitBetweenTries": 5000
+          }
+        }
+      },
+      "id": "node-04-http-triaje",
+      "name": "4. HTTP llama microservicio LangChain (triaje)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [-520, 0],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "REEMPLAZAR",
+          "name": "API token SOC-Lite"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "content": "## 5. Agente LangChain (dentro del microservicio FastAPI)\n\nNo es un nodo de n8n: el nodo 4 llama a `POST /api/v1/triage/{alert_id}` y allí corre `app/services/triage.py`:\n\n1. Tools: VirusTotal, AbuseIPDB, GeoIP, inteligencia local (enriquecimiento persistido en `enrichment_data`).\n2. Agente `create_agent` (LangChain 1.x) con `response_format=TriageDecision`.\n3. LLM local Ollama (llama3.1/mistral) -> sin exfiltracion de alertas.\n4. Fallback heuristico si Ollama no responde.\n5. Devuelve: verdict, severity, confidence, summary, recommended_actions.\n\nSalida del nodo 4: JSON de triaje usado por el nodo 6.",
+        "height": 260,
+        "width": 340
+      },
+      "id": "node-05-nota-agente",
+      "name": "Nota 5 - Agente LangChain",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [-520, 220]
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "loose",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "rule-alta",
+                    "leftValue": "={{ $json.predicted_severity }}",
+                    "rightValue": "alta",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "alta",
+              "fallbackOutput": "extra"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "loose",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "rule-media",
+                    "leftValue": "={{ $json.predicted_severity }}",
+                    "rightValue": "media",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "media",
+              "fallbackOutput": "extra"
+            }
+          ]
+        },
+        "options": {
+          "fallbackOutput": "extra",
+          "renameFallbackOutput": "baja"
+        }
+      },
+      "id": "node-06-switch",
+      "name": "6. Switch por severidad (alta/media/baja)",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [-300, 0]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO triage_results (alert_id, llm_verdict, predicted_severity, confidence, summary, recommended_actions, model_name, engine, tokens_used, latency_ms, created_at)\nSELECT\n  {{ $json.alert_id || $('4. HTTP llama microservicio LangChain (triaje)').item.json.alert_id || 0 }},\n  {{ JSON.stringify($json.llm_verdict || 'sospechoso') }},\n  {{ JSON.stringify($json.predicted_severity || 'media') }},\n  {{ Number($json.confidence || 0) }},\n  {{ JSON.stringify($json.summary || '') }},\n  {{ JSON.stringify(JSON.stringify($json.recommended_actions || [])) }}::jsonb,\n  {{ JSON.stringify($json.model_name || null) }},\n  {{ JSON.stringify($json.engine || 'llm') }},\n  {{ $json.tokens_used || 'NULL' }},\n  {{ $json.latency_ms || 'NULL' }},\n  NOW()\nWHERE NOT EXISTS (SELECT 1 FROM triage_results WHERE alert_id = {{ $json.alert_id || $('4. HTTP llama microservicio LangChain (triaje)').item.json.alert_id || 0 }})\nON CONFLICT DO NOTHING;\nUPDATE alerts SET status = 'triaged' WHERE id = {{ $json.alert_id || $('4. HTTP llama microservicio LangChain (triaje)').item.json.alert_id || 0 }};",
+        "options": {}
+      },
+      "id": "node-07a-postgres-triaje-alta",
+      "name": "7. PostgreSQL guarda triaje (alta)",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [-80, -180],
+      "credentials": {
+        "postgresDatabase": {
+          "id": "REEMPLAZAR",
+          "name": "PostgreSQL SOC-Lite"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "resource": "message",
+        "operation": "post",
+        "select": "channel",
+        "channelId": {
+          "__rl": true,
+          "mode": "name",
+          "value": "#soc-alertas"
+        },
+        "text": ":rotating_light: *ALERTA ALTA TRIADA* (SOC-Lite)\n*Severidad final:* {{ $json.predicted_severity }}\n*Veredicto:* {{ $json.llm_verdict }} (confianza {{ $json.confidence }})\n*Resumen:* {{ $json.summary }}\n*Acciones:* {{ ($json.recommended_actions || []).join(' · ') }}",
+        "otherOptions": {}
+      },
+      "id": "node-08-slack",
+      "name": "8. Slack/Telegram notifica severidad ALTA",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.1,
+      "position": [140, -240],
+      "credentials": {
+        "slackApi": {
+          "id": "REEMPLAZAR",
+          "name": "Slack SOC"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.OSTICKET_URL || 'http://localhost/osTicket/api/tickets.json' }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-API-Key",
+              "value": "={{ $env.OSTICKET_API_KEY || 'REEMPLAZAR' }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"autorespond\": 0,\n  \"alert_only\": 1,\n  \"ticket\": {\n    \"email\": \"soc@soclite.local\",\n    \"name\": \"SOC-Lite (automatico)\",\n    \"subject\": \"[SOC-Lite] Alerta {{ $json.predicted_severity }}: {{ $('1. Webhook entrada').item.json.title || 'alerta' }}\",\n    \"message\": {{ JSON.stringify(($json.summary || '') + '\\n\\nAcciones: ' + (($json.recommended_actions || []).join('; '))) }},\n    \"ip\": {{ JSON.stringify($('1. Webhook entrada').item.json.src_ip || '') }}\n  }\n}",
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "id": "node-09a-osticket-alta",
+      "name": "9. HTTP crea ticket osTicket (alta)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [360, -240]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.SOC_API_URL || 'http://localhost:8000' }}/api/v1/audit",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.SOC_API_TOKEN || 'REEMPLAZAR_TOKEN' }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"module\": \"triage\",\n  \"action\": \"EXECUTE\",\n  \"username\": \"n8n\",\n  \"details\": {\n    \"workflow\": \"SOC-Lite triaje\",\n    \"node\": 10,\n    \"alert_id\": {{ $json.alert_id || $('4. HTTP llama microservicio LangChain (triaje)').item.json.alert_id || null }},\n    \"severity\": {{ JSON.stringify($json.predicted_severity || 'media') }},\n    \"branch\": {{ JSON.stringify($node['6. Switch por severidad (alta/media/baja)'].pairedItem ? 'x' : 'x') }}\n  }\n}",
+        "options": {}
+      },
+      "id": "node-10-auditoria-alta",
+      "name": "10. HTTP registra bitácora de auditoría (alta)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [580, -240]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO triage_results (alert_id, llm_verdict, predicted_severity, confidence, summary, recommended_actions, engine, created_at)\nSELECT\n  {{ $json.alert_id || 0 }},\n  {{ JSON.stringify($json.llm_verdict || 'sospechoso') }},\n  {{ JSON.stringify($json.predicted_severity || 'media') }},\n  {{ Number($json.confidence || 0) }},\n  {{ JSON.stringify($json.summary || '') }},\n  {{ JSON.stringify(JSON.stringify($json.recommended_actions || [])) }}::jsonb,\n  {{ JSON.stringify($json.engine || 'llm') }},\n  NOW()\nWHERE NOT EXISTS (SELECT 1 FROM triage_results WHERE alert_id = {{ $json.alert_id || 0 }})\nON CONFLICT DO NOTHING;\nUPDATE alerts SET status = 'triaged' WHERE id = {{ $json.alert_id || 0 }};",
+        "options": {}
+      },
+      "id": "node-07b-postgres-triaje-media",
+      "name": "7. PostgreSQL guarda triaje (media)",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [-80, 0],
+      "credentials": {
+        "postgresDatabase": {
+          "id": "REEMPLAZAR",
+          "name": "PostgreSQL SOC-Lite"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.OSTICKET_URL || 'http://localhost/osTicket/api/tickets.json' }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-API-Key",
+              "value": "={{ $env.OSTICKET_API_KEY || 'REEMPLAZAR' }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"autorespond\": 0,\n  \"alert_only\": 1,\n  \"ticket\": {\n    \"email\": \"soc@soclite.local\",\n    \"name\": \"SOC-Lite (automatico)\",\n    \"subject\": \"[SOC-Lite] Alerta media: {{ $('1. Webhook entrada').item.json.title || 'alerta' }}\",\n    \"message\": {{ JSON.stringify($json.summary || '') }},\n    \"ip\": {{ JSON.stringify($('1. Webhook entrada').item.json.src_ip || '') }}\n  }\n}",
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "id": "node-09b-osticket-media",
+      "name": "9. HTTP crea ticket osTicket (media)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [140, 0]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.SOC_API_URL || 'http://localhost:8000' }}/api/v1/audit",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.SOC_API_TOKEN || 'REEMPLAZAR_TOKEN' }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"module\": \"triage\",\n  \"action\": \"EXECUTE\",\n  \"username\": \"n8n\",\n  \"details\": {\n    \"workflow\": \"SOC-Lite triaje\",\n    \"node\": 10,\n    \"alert_id\": {{ $json.alert_id || null }},\n    \"severity\": {{ JSON.stringify($json.predicted_severity || 'media') }},\n    \"branch\": \"media\"\n  }\n}",
+        "options": {}
+      },
+      "id": "node-10-auditoria-media",
+      "name": "10. HTTP registra bitácora de auditoría (media)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [360, 0]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO triage_results (alert_id, llm_verdict, predicted_severity, confidence, summary, recommended_actions, engine, created_at)\nSELECT\n  {{ $json.alert_id || 0 }},\n  {{ JSON.stringify($json.llm_verdict || 'falso_positivo') }},\n  {{ JSON.stringify($json.predicted_severity || 'baja') }},\n  {{ Number($json.confidence || 0) }},\n  {{ JSON.stringify($json.summary || '') }},\n  {{ JSON.stringify(JSON.stringify($json.recommended_actions || [])) }}::jsonb,\n  {{ JSON.stringify($json.engine || 'llm') }},\n  NOW()\nWHERE NOT EXISTS (SELECT 1 FROM triage_results WHERE alert_id = {{ $json.alert_id || 0 }})\nON CONFLICT DO NOTHING;\nUPDATE alerts SET status = 'triaged' WHERE id = {{ $json.alert_id || 0 }};",
+        "options": {}
+      },
+      "id": "node-07c-postgres-triaje-baja",
+      "name": "7. PostgreSQL guarda triaje (baja)",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [-80, 200],
+      "credentials": {
+        "postgresDatabase": {
+          "id": "REEMPLAZAR",
+          "name": "PostgreSQL SOC-Lite"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.SOC_API_URL || 'http://localhost:8000' }}/api/v1/audit",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.SOC_API_TOKEN || 'REEMPLAZAR_TOKEN' }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"module\": \"triage\",\n  \"action\": \"EXECUTE\",\n  \"username\": \"n8n\",\n  \"details\": {\n    \"workflow\": \"SOC-Lite triaje\",\n    \"node\": 10,\n    \"alert_id\": {{ $json.alert_id || null }},\n    \"severity\": \"baja\",\n    \"branch\": \"baja\"\n  }\n}",
+        "options": {}
+      },
+      "id": "node-10-auditoria-baja",
+      "name": "10. HTTP registra bitácora de auditoría (baja)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [140, 200]
+    },
+    {
+      "parameters": {
+        "content": "## Flujo SOC-Lite\n\n1. Webhook ← Wazuh / OPNsense (JSON crudo → payload normalizado)\n2. IF → descarta duplicados y severidad < media\n3. PostgreSQL → alerta en estado `pending` (dedup por md5)\n4. HTTP → `POST /api/v1/triage/{id}` (microservicio LangChain+FastAPI)\n5. **Agente LangChain** (interno a la API) → veredicto, severidad, resumen, acciones\n6. Switch → rama alta / media / baja\n7. PostgreSQL → `triage_results` + `alerts.status='triaged'`\n8. Slack → solo severidad ALTA\n9. osTicket/Redmine → ticket (alta y media)\n10. HTTP → bitácora `POST /api/v1/audit` (usuario n8n, módulo triage, acción EXECUTE)",
+        "height": 300,
+        "width": 380
+      },
+      "id": "node-nota-flujo",
+      "name": "Nota - Flujo completo",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [-1180, 220]
+    },
+    {
+      "parameters": {
+        "content": "### Credenciales y variables\n\n- Credencial `PostgreSQL SOC-Lite`: host `postgres`, db `soclite`, user `soclite`.\n- Credencial `API token SOC-Lite`: header `X-Webhook-Token`... en realidad `Authorization: Bearer <JWT admin>` (generar con login).\n- Variables de entorno: `SOC_API_URL`, `SOC_API_TOKEN`, `OSTICKET_URL`, `OSTICKET_API_KEY`.\n- Slack: credencial `slackApi` y canal `#soc-alertas`.",
+        "height": 240,
+        "width": 380
+      },
+      "id": "node-nota-creds",
+      "name": "Nota - Credenciales",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [-1180, 560]
+    },
+    {
+      "parameters": {
+        "content": "### Nota de seguridad\n\nOllama corre localmente: las alertas **no salen** hacia APIs externas de LLM. VirusTotal/AbuseIPDB solo se consultan con API key propia (o modo simulado `ENRICHMENT_MOCK=true`).",
+        "height": 170,
+        "width": 340
+      },
+      "id": "node-nota-seg",
+      "name": "Nota - Seguridad LLM",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [-800, 560]
+    }
+  ],
+  "connections": {
+    "1. Webhook entrada": {
+      "main": [
+        [
+          {
+            "node": "2. IF filtra duplicados y severidad < media",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "2. IF filtra duplicados y severidad < media": {
+      "main": [
+        [
+          {
+            "node": "3. PostgreSQL persiste alerta (pending)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
+      ]
+    },
+    "3. PostgreSQL persiste alerta (pending)": {
+      "main": [
+        [
+          {
+            "node": "4. HTTP llama microservicio LangChain (triaje)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "4. HTTP llama microservicio LangChain (triaje)": {
+      "main": [
+        [
+          {
+            "node": "6. Switch por severidad (alta/media/baja)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "6. Switch por severidad (alta/media/baja)": {
+      "main": [
+        [
+          {
+            "node": "7. PostgreSQL guarda triaje (alta)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "7. PostgreSQL guarda triaje (media)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "7. PostgreSQL guarda triaje (baja)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "7. PostgreSQL guarda triaje (alta)": {
+      "main": [
+        [
+          {
+            "node": "8. Slack/Telegram notifica severidad ALTA",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "8. Slack/Telegram notifica severidad ALTA": {
+      "main": [
+        [
+          {
+            "node": "9. HTTP crea ticket osTicket (alta)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "9. HTTP crea ticket osTicket (alta)": {
+      "main": [
+        [
+          {
+            "node": "10. HTTP registra bitácora de auditoría (alta)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "7. PostgreSQL guarda triaje (media)": {
+      "main": [
+        [
+          {
+            "node": "9. HTTP crea ticket osTicket (media)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "9. HTTP crea ticket osTicket (media)": {
+      "main": [
+        [
+          {
+            "node": "10. HTTP registra bitácora de auditoría (media)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "7. PostgreSQL guarda triaje (baja)": {
+      "main": [
+        [
+          {
+            "node": "10. HTTP registra bitácora de auditoría (baja)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true,
+    "timezone": "America/Lima"
+  },
+  "pinData": {},
+  "meta": {
+    "instanceId": "soclite"
+  },
+  "tags": [
+    {
+      "name": "soc"
+    },
+    {
+      "name": "triage"
+    }
+  ]
+}

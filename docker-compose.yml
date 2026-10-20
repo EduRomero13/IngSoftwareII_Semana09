@@ -1,0 +1,76 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: soclite-postgres
+    environment:
+      POSTGRES_USER: soclite
+      POSTGRES_PASSWORD: soclite
+      POSTGRES_DB: soclite
+    ports:
+      - "5432:5432"
+    volumes:
+      - soclite_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U soclite -d soclite"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  api:
+    build: ./backend
+    container_name: soclite-api
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql+asyncpg://soclite:soclite@postgres:5432/soclite
+      JWT_SECRET: ${JWT_SECRET:-cambiar-en-produccion}
+      CORS_ORIGINS: http://localhost:5173,http://localhost:3000,http://localhost
+      WEBHOOK_TOKEN: ${WEBHOOK_TOKEN:-soclite-webhook-token}
+      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-llama3.1}
+      LLM_PROVIDER: ${LLM_PROVIDER:-ollama}
+      ENRICHMENT_MOCK: ${ENRICHMENT_MOCK:-true}
+      TRIAGE_FALLBACK_ENABLED: "true"
+    ports:
+      - "8000:8000"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    command: >
+      sh -c "python -m app.seed &&
+             uvicorn app.main:app --host 0.0.0.0 --port 8000"
+
+  ollama:
+    image: ollama/ollama:latest
+    container_name: soclite-ollama
+    profiles: ["llm"]
+    ports:
+      - "11434:11434"
+    volumes:
+      - soclite_ollama:/root/.ollama
+
+  n8n:
+    image: n8nio/n8n:latest
+    container_name: soclite-n8n
+    profiles: ["n8n"]
+    ports:
+      - "5678:5678"
+    environment:
+      N8N_BASIC_AUTH_ACTIVE: "false"
+      GENERIC_TIMEZONE: "America/Lima"
+    volumes:
+      - soclite_n8n:/home/node/.n8n
+
+  frontend:
+    build: ./frontend
+    container_name: soclite-frontend
+    depends_on:
+      - api
+    ports:
+      - "5173:80"
+    profiles: ["frontend"]
+
+volumes:
+  soclite_pgdata:
+  soclite_ollama:
+  soclite_n8n:
