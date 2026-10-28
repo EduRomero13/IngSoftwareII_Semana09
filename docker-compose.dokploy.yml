@@ -85,6 +85,7 @@ services:
       N8N_WEBHOOK_URL: https://soclite-n8n.169-58-140-8.sslip.io
       N8N_PROXY_HOPS: "1"
       N8N_ENCRYPTION_KEY: ${N8N_ENCRYPTION_KEY:?N8N_ENCRYPTION_KEY requerida}
+      N8N_BLOCK_ENV_ACCESS_IN_NODE: "false"
       N8N_DIAGNOSTICS_ENABLED: "false"
       N8N_PERSONALIZATION_ENABLED: "false"
       N8N_SECURE_COOKIE: "true"
