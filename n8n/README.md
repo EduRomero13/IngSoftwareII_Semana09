@@ -69,6 +69,9 @@ El workflow tiene `id` fijo (`SocLiteTriage001`): reimportar actualiza, no dupli
 |---|---|---|
 | 8. Slack | Slack API | token del bot con permiso `chat:write` |
 
+El nodo de Slack viaja **deshabilitado** para que el workflow se pueda publicar sin credencial.
+Al configurar la credencial `slackApi`, habilita el nodo y vuelve a publicar el workflow.
+
 El webhook no usa credencial de n8n: el nodo 2 compara la cabecera `X-Webhook-Token`
 con `SOC_WEBHOOK_TOKEN`. El resto usa variables de entorno del contenedor (`SOC_API_URL`,
 `SOC_WEBHOOK_TOKEN`, `SOC_API_USER`, `SOC_API_PASSWORD`, `SLACK_CHANNEL`, `OSTICKET_URL`,

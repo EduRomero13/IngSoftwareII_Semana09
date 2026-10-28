@@ -84,7 +84,7 @@ HTTP Request `4.5`, Switch `3.5`, Slack `2.7`, NoOp `1`.
 | 5 | HTTP Request | `POST /api/v1/auth/login/json` del usuario de servicio (rol analyst) | credenciales de entorno → JWT |
 | 6 | HTTP Request | `POST /api/v1/triage/{id}` con Bearer; enriquece, clasifica y **persiste** triaje + auditoría | JWT + id → JSON de triaje |
 | 7 | Switch | Enruta por `predicted_severity` (alta/media/baja) | triaje → 3 ramas |
-| 8 | Slack | Notifica **solo severidad alta** | resumen → mensaje |
+| 8 | Slack | Notifica **solo severidad alta** (nodo deshabilitado por defecto hasta configurar `slackApi`) | resumen → mensaje |
 | 9 | HTTP Request | Crea ticket en osTicket (alta) | triaje → `ticket_id` |
 | 10 | HTTP Request | Crea ticket en osTicket (media) | triaje → `ticket_id` |
 | 11 | NoOp | Fin de la rama baja (sin notificación) | — |

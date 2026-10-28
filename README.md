@@ -203,7 +203,8 @@ persistido y auditoría). Versión validada: **n8n 2.45.5**.
    docker compose --profile n8n up -d n8n
    ```
 4. En la UI de n8n crear solo la credencial **Slack API**; el webhook valida `X-Webhook-Token`
-   contra `SOC_WEBHOOK_TOKEN` dentro del workflow.
+   contra `SOC_WEBHOOK_TOKEN` dentro del workflow. El nodo Slack viene deshabilitado: al
+   configurar la credencial, habilítalo y publica el workflow.
 5. Flujo: Webhook → Code (normaliza) → IF → `POST /alerts/webhook` → login de servicio →
    `POST /triage/{id}` → Switch por severidad → Slack (solo alta) → osTicket (alta/media).
 

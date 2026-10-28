@@ -199,6 +199,7 @@ def test_slack_solo_recibe_severidad_alta(workflow, nodes):
     sources = [source for source, names in targets.items() if "8. Slack notifica alta" in names]
     assert sources == ["7. Switch severidad"]
     slack = nodes["8. Slack notifica alta"]
+    assert slack.get("disabled") is True
     assert slack["parameters"]["channelId"]["value"] == "={{ $env.SLACK_CHANNEL }}"
     assert slack["parameters"]["messageType"] == "text"
     assert targets["8. Slack notifica alta"] == ["9. HTTP ticket osTicket (alta)"]

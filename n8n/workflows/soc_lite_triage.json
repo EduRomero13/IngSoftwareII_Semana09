@@ -216,6 +216,7 @@
       "type": "n8n-nodes-base.slack",
       "typeVersion": 2.7,
       "position": [340, -240],
+      "disabled": true,
       "retryOnFail": true,
       "maxTries": 2,
       "waitBetweenTries": 3000,
