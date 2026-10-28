@@ -1,3 +1,8 @@
+import pytest
+
+pytestmark = pytest.mark.integration
+
+
 async def login(client, username: str, password: str) -> str:
     resp = await client.post(
         "/api/v1/auth/login/json", json={"username": username, "password": password}
