@@ -241,4 +241,5 @@ def test_compose_dokploy_sin_puertos_y_con_traefik():
     assert "n8nio/n8n:2.45.5" in compose
     assert "${POSTGRES_PASSWORD" in compose
     assert "${N8N_ENCRYPTION_KEY" in compose
-    assert "import:workflow" in compose
+    assert "healthcheck" in compose
+    assert "condition: service_healthy" in compose

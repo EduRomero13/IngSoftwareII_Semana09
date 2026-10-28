@@ -104,8 +104,7 @@ severidad predicha es `alta` y ticket en osTicket para `alta`/`media`.
 ## Despliegue (Dokploy / Traefik)
 
 Usar [`../docker-compose.dokploy.yml`](../docker-compose.dokploy.yml): no publica puertos al host,
-incluye labels de Traefik y dominios `sslip.io` con Let's Encrypt, e importa este workflow al
-arrancar el contenedor (`n8n import:workflow`).
+incluye labels de Traefik y dominios `sslip.io` con Let's Encrypt.
 
 | Servicio | Dominio | Container Port |
 |---|---|---|
@@ -115,6 +114,9 @@ arrancar el contenedor (`n8n import:workflow`).
 Variables obligatorias del proyecto en Dokploy: `POSTGRES_PASSWORD`, `JWT_SECRET`,
 `WEBHOOK_TOKEN`, `N8N_ENCRYPTION_KEY`, `N8N_SERVICE_PASSWORD`. El webhook queda en
 `https://soclite-n8n.169-58-140-8.sslip.io/webhook/soc-alert`.
+
+La imagen de n8n no incluye shell: importar el workflow desde la UI (*Workflows → Import from
+File*) o con `docker compose exec n8n n8n import:workflow --input=/workflows/soc_lite_triage.json`.
 
 ## Pruebas del contrato
 
