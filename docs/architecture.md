@@ -77,8 +77,8 @@ HTTP Request `4.5`, Switch `3.5`, Slack `2.7`, NoOp `1`.
 
 | # | Nodo | Función | Entrada → Salida |
 |---|---|---|---|
-| 1 | Webhook | Recibe alerta Wazuh/OPNsense (`POST /webhook/soc-alert`, header auth) | JSON crudo → items |
-| 2 | Code | Normaliza a `AlertCreate` (severidad numérica o texto, IPs, título, `raw_payload`) | JSON crudo → alerta normalizada |
+| 1 | Webhook | Recibe alerta Wazuh/OPNsense (`POST /webhook/soc-alert`) | JSON crudo → items |
+| 2 | Code | Valida `X-Webhook-Token` y normaliza a `AlertCreate` (severidad numérica o texto, IPs, título, `raw_payload`) | JSON crudo → alerta normalizada |
 | 3 | IF | Descarta alertas sin severidad válida o sin IP | alerta → booleano (false → fin) |
 | 4 | HTTP Request | `POST /api/v1/alerts/webhook` con `X-Webhook-Token`; dedup SHA-256 en backend | alerta → `{id, status, duplicates_total}` |
 | 5 | HTTP Request | `POST /api/v1/auth/login/json` del usuario de servicio (rol analyst) | credenciales de entorno → JWT |

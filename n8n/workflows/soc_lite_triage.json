@@ -6,7 +6,6 @@
       "parameters": {
         "httpMethod": "POST",
         "path": "soc-alert",
-        "authentication": "headerAuth",
         "responseMode": "onReceived",
         "options": {}
       },
@@ -20,7 +19,7 @@
     {
       "parameters": {
         "mode": "runOnceForEachItem",
-        "jsCode": "const item = $json || {};\nconst rule = item.rule || {};\nconst data = item.data || {};\nconst severityMap = { alta: 'alta', media: 'media', baja: 'baja', high: 'alta', medium: 'media', low: 'baja', critical: 'alta' };\nconst rawSeverity = item.severity ?? item.rule_level ?? rule.level ?? item.priority ?? '';\nlet severity = typeof rawSeverity === 'string' ? rawSeverity.toLowerCase().trim() : '';\nif (severityMap[severity]) {\n  severity = severityMap[severity];\n} else {\n  const level = Number(rawSeverity);\n  severity = Number.isFinite(level) ? (level >= 10 ? 'alta' : level >= 5 ? 'media' : 'baja') : '';\n}\nconst srcIp = item.src_ip || item.srcip || item.source_ip || data.srcip || data.src_ip || null;\nconst dstIp = item.dst_ip || item.dstip || item.destination_ip || data.dstip || data.dst_ip || null;\nconst title = item.title || item.message || rule.description || 'Alerta sin titulo';\nconst source = String(item.source || (item.rule ? 'wazuh' : 'opnsense')).toLowerCase();\nreturn {\n  json: {\n    source,\n    severity,\n    title: String(title).slice(0, 255),\n    rule_id: item.rule_id ? String(item.rule_id) : rule.id ? String(rule.id) : null,\n    description: item.description || item.full_log || null,\n    src_ip: srcIp,\n    dst_ip: dstIp,\n    raw_payload: item,\n    is_valid: ['alta', 'media', 'baja'].includes(severity) && Boolean(title) && Boolean(srcIp || dstIp),\n  },\n};"
+        "jsCode": "const envelope = $json || {};\nconst headers = envelope.headers || {};\nconst headerToken = Object.entries(headers).find(([name]) => name.toLowerCase() === 'x-webhook-token')?.[1] || '';\nconst item = envelope.body || envelope;\nconst rule = item.rule || {};\nconst data = item.data || {};\nconst severityMap = { alta: 'alta', media: 'media', baja: 'baja', high: 'alta', medium: 'media', low: 'baja', critical: 'alta' };\nconst rawSeverity = item.severity ?? item.rule_level ?? rule.level ?? item.priority ?? '';\nlet severity = typeof rawSeverity === 'string' ? rawSeverity.toLowerCase().trim() : '';\nif (severityMap[severity]) {\n  severity = severityMap[severity];\n} else {\n  const level = Number(rawSeverity);\n  severity = Number.isFinite(level) ? (level >= 10 ? 'alta' : level >= 5 ? 'media' : 'baja') : '';\n}\nconst srcIp = item.src_ip || item.srcip || item.source_ip || data.srcip || data.src_ip || null;\nconst dstIp = item.dst_ip || item.dstip || item.destination_ip || data.dstip || data.dst_ip || null;\nconst title = item.title || item.message || rule.description || 'Alerta sin titulo';\nconst source = String(item.source || (item.rule ? 'wazuh' : 'opnsense')).toLowerCase();\nreturn {\n  json: {\n    source,\n    severity,\n    title: String(title).slice(0, 255),\n    rule_id: item.rule_id ? String(item.rule_id) : rule.id ? String(rule.id) : null,\n    description: item.description || item.full_log || null,\n    src_ip: srcIp,\n    dst_ip: dstIp,\n    raw_payload: item,\n    is_valid: Boolean($env.SOC_WEBHOOK_TOKEN) && headerToken === $env.SOC_WEBHOOK_TOKEN && ['alta', 'media', 'baja'].includes(severity) && Boolean(title) && Boolean(srcIp || dstIp),\n  },\n};"
       },
       "id": "2a1b2c3d-4e5f-4a6b-9c7d-8e9f0a1b2c3d",
       "name": "2. Normalizar alerta",
@@ -292,7 +291,7 @@
     },
     {
       "parameters": {
-        "content": "## Flujo SOC-Lite (API-only)\n\n1. Webhook recibe Wazuh/OPNsense (header auth).\n2. Code normaliza el payload a `AlertCreate` (severidad numerica o texto).\n3. IF descarta alertas invalidas.\n4. HTTP `POST /api/v1/alerts/webhook` (token de webhook, dedup SHA-256 en backend).\n5. HTTP login del usuario de servicio (`SOC_API_USER`).\n6. HTTP `POST /api/v1/triage/{id}`: enriquece, ejecuta LangChain/Ollama, persiste triaje y audita.\n7. Switch por `predicted_severity` (alta / media / baja).\n8. Slack solo severidad ALTA.\n9-10. osTicket para alta y media.\n11. Rama baja termina sin notificacion.\n\nSin nodos PostgreSQL: FastAPI es la unica ruta de escritura.",
+        "content": "## Flujo SOC-Lite (API-only)\n\n1. Webhook recibe Wazuh/OPNsense; el token `X-Webhook-Token` se valida contra `SOC_WEBHOOK_TOKEN`.\n2. Code normaliza el payload a `AlertCreate` (severidad numerica o texto).\n3. IF descarta alertas invalidas o con token incorrecto.\n4. HTTP `POST /api/v1/alerts/webhook` (token de webhook, dedup SHA-256 en backend).\n5. HTTP login del usuario de servicio (`SOC_API_USER`).\n6. HTTP `POST /api/v1/triage/{id}`: enriquece, ejecuta LangChain/Ollama, persiste triaje y audita.\n7. Switch por `predicted_severity` (alta / media / baja).\n8. Slack solo severidad ALTA.\n9-10. osTicket para alta y media.\n11. Rama baja termina sin notificacion.\n\nSin nodos PostgreSQL: FastAPI es la unica ruta de escritura.",
         "height": 360,
         "width": 480
       },
@@ -304,7 +303,7 @@
     },
     {
       "parameters": {
-        "content": "### Credenciales y variables\n\n- Credencial `Header Auth` del webhook (nodo 1): cabecera `X-Webhook-Token` con el mismo valor que `SOC_WEBHOOK_TOKEN` del backend.\n- Credencial `slackApi` en el nodo 8.\n- Variables de entorno: `SOC_API_URL`, `SOC_WEBHOOK_TOKEN`, `SOC_API_USER`, `SOC_API_PASSWORD`, `SLACK_CHANNEL`, `OSTICKET_URL`, `OSTICKET_API_KEY`.\n- Usuario de servicio `n8n` (rol analyst) creado por el seed con `N8N_SERVICE_PASSWORD`.\n- Ningun secreto se versiona en este JSON.",
+        "content": "### Credenciales y variables\n\n- Credencial `slackApi` en el nodo 8.\n- El webhook valida `X-Webhook-Token` contra la variable `SOC_WEBHOOK_TOKEN`; no usa credencial de n8n.\n- Variables de entorno: `SOC_API_URL`, `SOC_WEBHOOK_TOKEN`, `SOC_API_USER`, `SOC_API_PASSWORD`, `SLACK_CHANNEL`, `OSTICKET_URL`, `OSTICKET_API_KEY`.\n- Usuario de servicio `n8n` (rol analyst) creado por el seed con `N8N_SERVICE_PASSWORD`.\n- Ningun secreto se versiona en este JSON.",
         "height": 260,
         "width": 460
       },

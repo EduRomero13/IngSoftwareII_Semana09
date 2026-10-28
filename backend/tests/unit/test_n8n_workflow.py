@@ -125,7 +125,7 @@ def test_webhook_configurado_para_wazuh(nodes):
     webhook = nodes["1. Webhook alertas Wazuh/OPNsense"]["parameters"]
     assert webhook["httpMethod"] == "POST"
     assert webhook["path"] == "soc-alert"
-    assert webhook["authentication"] == "headerAuth"
+    assert "authentication" not in webhook
     assert webhook["responseMode"] == "onReceived"
 
 
@@ -135,6 +135,9 @@ def test_normalizacion_cubre_campos_de_alerta(nodes):
         assert key in code
     assert "rule.description" in code
     assert "severityMap" in code
+    assert "envelope.body" in code
+    assert "x-webhook-token" in code
+    assert "$env.SOC_WEBHOOK_TOKEN" in code
 
 
 def test_if_valida_alerta_normalizada(nodes):
@@ -227,3 +230,15 @@ def test_docker_compose_pinnea_n8n_y_no_publica_puertos():
     assert "5678:5678" not in compose
     for env in ("N8N_ENCRYPTION_KEY", "N8N_PROXY_HOPS", "N8N_WEBHOOK_URL", "SOC_API_URL"):
         assert env in compose
+
+
+def test_compose_dokploy_sin_puertos_y_con_traefik():
+    compose = (ROOT / "docker-compose.dokploy.yml").read_text(encoding="utf-8")
+    assert "ports:" not in compose
+    assert "traefik.enable=true" in compose
+    assert "sslip.io" in compose
+    assert "certResolver=letsencrypt" in compose
+    assert "n8nio/n8n:2.45.5" in compose
+    assert "${POSTGRES_PASSWORD" in compose
+    assert "${N8N_ENCRYPTION_KEY" in compose
+    assert "import:workflow" in compose

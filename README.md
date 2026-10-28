@@ -97,6 +97,10 @@ docker compose --profile n8n up -d         # + n8n en :5678 (opcional)
 docker compose --profile llm up -d         # + ollama en :11434 (opcional)
 ```
 
+**Despliegue en Dokploy:** `docker-compose.dokploy.yml` (sin puertos al host, Traefik +
+`sslip.io` + Let's Encrypt, importa el workflow de n8n al arrancar). Dominios:
+`https://soclite.169-58-140-8.sslip.io` y `https://soclite-n8n.169-58-140-8.sslip.io`.
+
 ---
 
 ## Stack
@@ -198,8 +202,8 @@ persistido y auditoría). Versión validada: **n8n 2.45.5**.
    docker compose --profile n8n run --rm n8n import:workflow --input=/workflows/soc_lite_triage.json
    docker compose --profile n8n up -d n8n
    ```
-4. En la UI de n8n crear solo dos credenciales: **Header Auth** del webhook
-   (`X-Webhook-Token`, mismo valor que `WEBHOOK_TOKEN`) y **Slack API**.
+4. En la UI de n8n crear solo la credencial **Slack API**; el webhook valida `X-Webhook-Token`
+   contra `SOC_WEBHOOK_TOKEN` dentro del workflow.
 5. Flujo: Webhook → Code (normaliza) → IF → `POST /alerts/webhook` → login de servicio →
    `POST /triage/{id}` → Switch por severidad → Slack (solo alta) → osTicket (alta/media).
 

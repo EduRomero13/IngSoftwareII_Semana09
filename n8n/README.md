@@ -13,9 +13,9 @@ ruta de escritura (RBAC, deduplicación SHA-256, triaje persistido y auditoría)
 
 ```
 Wazuh / OPNsense
-  └─ POST /webhook/soc-alert  (header auth)
+  └─ POST /webhook/soc-alert  (X-Webhook-Token validado en el nodo 2)
        1. Webhook
-       2. Code       normaliza el payload a AlertCreate
+       2. Code       valida el token y normaliza el payload a AlertCreate
        3. IF         descarta alertas inválidas
        4. HTTP       POST /api/v1/alerts/webhook   (X-Webhook-Token)
        5. HTTP       POST /api/v1/auth/login/json  (usuario de servicio)
@@ -67,12 +67,12 @@ El workflow tiene `id` fijo (`SocLiteTriage001`): reimportar actualiza, no dupli
 
 | Nodo | Credencial | Configuración |
 |---|---|---|
-| 1. Webhook | Header Auth | nombre `X-Webhook-Token`, valor = `WEBHOOK_TOKEN` del backend |
 | 8. Slack | Slack API | token del bot con permiso `chat:write` |
 
-El resto usa variables de entorno del contenedor (`SOC_API_URL`, `SOC_WEBHOOK_TOKEN`,
-`SOC_API_USER`, `SOC_API_PASSWORD`, `SLACK_CHANNEL`, `OSTICKET_URL`, `OSTICKET_API_KEY`).
-No se versiona ningún secreto.
+El webhook no usa credencial de n8n: el nodo 2 compara la cabecera `X-Webhook-Token`
+con `SOC_WEBHOOK_TOKEN`. El resto usa variables de entorno del contenedor (`SOC_API_URL`,
+`SOC_WEBHOOK_TOKEN`, `SOC_API_USER`, `SOC_API_PASSWORD`, `SLACK_CHANNEL`, `OSTICKET_URL`,
+`OSTICKET_API_KEY`). No se versiona ningún secreto.
 
 ## Variables de entorno
 
@@ -103,11 +103,18 @@ severidad predicha es `alta` y ticket en osTicket para `alta`/`media`.
 
 ## Despliegue (Dokploy / Traefik)
 
-El servicio no publica puertos al host. En Dokploy:
+Usar [`../docker-compose.dokploy.yml`](../docker-compose.dokploy.yml): no publica puertos al host,
+incluye labels de Traefik y dominios `sslip.io` con Let's Encrypt, e importa este workflow al
+arrancar el contenedor (`n8n import:workflow`).
 
-1. Container Port: `5678`.
-2. Dominio HTTPS con `sslip.io` + Let's Encrypt.
-3. `N8N_HOST`, `N8N_PROTOCOL=https` y `N8N_WEBHOOK_URL` con el dominio público.
+| Servicio | Dominio | Container Port |
+|---|---|---|
+| frontend | `https://soclite.169-58-140-8.sslip.io` | 80 |
+| n8n | `https://soclite-n8n.169-58-140-8.sslip.io` | 5678 |
+
+Variables obligatorias del proyecto en Dokploy: `POSTGRES_PASSWORD`, `JWT_SECRET`,
+`WEBHOOK_TOKEN`, `N8N_ENCRYPTION_KEY`, `N8N_SERVICE_PASSWORD`. El webhook queda en
+`https://soclite-n8n.169-58-140-8.sslip.io/webhook/soc-alert`.
 
 ## Pruebas del contrato
 

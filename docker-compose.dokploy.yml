@@ -1,0 +1,121 @@
+# Compose para Dokploy (VPS 169.58.140.8) con Traefik.
+# Sin puertos publicados al host: el acceso es por dominios sslip.io + Let's Encrypt.
+# Secretos por variables de entorno del proyecto en Dokploy; ninguno en el repo.
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-soclite}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD requerida}
+      POSTGRES_DB: ${POSTGRES_DB:-soclite}
+    volumes:
+      - soclite_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-soclite} -d ${POSTGRES_DB:-soclite}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    networks:
+      - internal
+
+  api:
+    build: ./backend
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-soclite}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-soclite}
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET requerida}
+      WEBHOOK_TOKEN: ${WEBHOOK_TOKEN:?WEBHOOK_TOKEN requerida}
+      CORS_ORIGINS: ${CORS_ORIGINS:-https://soclite.169-58-140-8.sslip.io}
+      LLM_PROVIDER: "none"
+      TRIAGE_FALLBACK_ENABLED: "true"
+      ENRICHMENT_MOCK: "true"
+      N8N_SERVICE_USER: ${N8N_SERVICE_USER:-n8n}
+      N8N_SERVICE_PASSWORD: ${N8N_SERVICE_PASSWORD:-}
+    command: >
+      sh -c "python -m app.seed &&
+             uvicorn app.main:app --host 0.0.0.0 --port 8000"
+    networks:
+      - internal
+
+  frontend:
+    build: ./frontend
+    restart: unless-stopped
+    depends_on:
+      - api
+    networks:
+      - internal
+      - dokploy-network
+    labels:
+      - "traefik.enable=true"
+      - "traefik.docker.network=dokploy-network"
+      - "traefik.http.routers.soclite-web.rule=Host(`soclite.169-58-140-8.sslip.io`)"
+      - "traefik.http.routers.soclite-web.entryPoints=web"
+      - "traefik.http.routers.soclite-web.middlewares=soclite-redirect-https"
+      - "traefik.http.middlewares.soclite-redirect-https.redirectscheme.scheme=https"
+      - "traefik.http.routers.soclite-web-secure.rule=Host(`soclite.169-58-140-8.sslip.io`)"
+      - "traefik.http.routers.soclite-web-secure.entryPoints=websecure"
+      - "traefik.http.routers.soclite-web-secure.tls=true"
+      - "traefik.http.routers.soclite-web-secure.tls.certResolver=letsencrypt"
+      - "traefik.http.routers.soclite-web-secure.service=soclite-web"
+      - "traefik.http.routers.soclite-web.service=soclite-web"
+      - "traefik.http.services.soclite-web.loadbalancer.server.port=80"
+
+  n8n:
+    image: n8nio/n8n:2.45.5
+    restart: unless-stopped
+    depends_on:
+      - api
+    environment:
+      N8N_HOST: soclite-n8n.169-58-140-8.sslip.io
+      N8N_PROTOCOL: https
+      N8N_WEBHOOK_URL: https://soclite-n8n.169-58-140-8.sslip.io
+      N8N_PROXY_HOPS: "1"
+      N8N_ENCRYPTION_KEY: ${N8N_ENCRYPTION_KEY:?N8N_ENCRYPTION_KEY requerida}
+      N8N_DIAGNOSTICS_ENABLED: "false"
+      N8N_PERSONALIZATION_ENABLED: "false"
+      N8N_SECURE_COOKIE: "true"
+      GENERIC_TIMEZONE: "America/Lima"
+      TZ: "America/Lima"
+      SOC_API_URL: http://api:8000
+      SOC_WEBHOOK_TOKEN: ${WEBHOOK_TOKEN}
+      SOC_API_USER: ${N8N_SERVICE_USER:-n8n}
+      SOC_API_PASSWORD: ${N8N_SERVICE_PASSWORD:-}
+      SLACK_CHANNEL: ${SLACK_CHANNEL:-#soc-alertas}
+      OSTICKET_URL: ${OSTICKET_URL:-}
+      OSTICKET_API_KEY: ${OSTICKET_API_KEY:-}
+    volumes:
+      - soclite_n8n:/home/node/.n8n
+      - ./n8n/workflows:/workflows:ro
+    command: >
+      sh -c "n8n import:workflow --input=/workflows/soc_lite_triage.json || true;
+             n8n start"
+    networks:
+      - internal
+      - dokploy-network
+    labels:
+      - "traefik.enable=true"
+      - "traefik.docker.network=dokploy-network"
+      - "traefik.http.routers.soclite-n8n.rule=Host(`soclite-n8n.169-58-140-8.sslip.io`)"
+      - "traefik.http.routers.soclite-n8n.entryPoints=web"
+      - "traefik.http.routers.soclite-n8n.middlewares=soclite-n8n-redirect-https"
+      - "traefik.http.middlewares.soclite-n8n-redirect-https.redirectscheme.scheme=https"
+      - "traefik.http.routers.soclite-n8n-secure.rule=Host(`soclite-n8n.169-58-140-8.sslip.io`)"
+      - "traefik.http.routers.soclite-n8n-secure.entryPoints=websecure"
+      - "traefik.http.routers.soclite-n8n-secure.tls=true"
+      - "traefik.http.routers.soclite-n8n-secure.tls.certResolver=letsencrypt"
+      - "traefik.http.routers.soclite-n8n-secure.service=soclite-n8n"
+      - "traefik.http.routers.soclite-n8n.service=soclite-n8n"
+      - "traefik.http.services.soclite-n8n.loadbalancer.server.port=5678"
+
+volumes:
+  soclite_pgdata:
+  soclite_n8n:
+
+networks:
+  internal:
+  dokploy-network:
+    external: true
