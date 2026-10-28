@@ -5,7 +5,7 @@
 | Componente | Responsabilidad | Tecnología |
 |---|---|---|
 | **Ingesta** | Recibe alertas crudas de Wazuh/OPNsense vía webhook | n8n (nodo Webhook) o `POST /api/v1/alerts/webhook` directo |
-| **Orquestación** | Filtra duplicados/severidad, persiste, llama al triaje, enruta por severidad, notifica y audita | n8n (`n8n/workflows/soc_lite_triage.json`) |
+| **Orquestación** | Normaliza y valida, ingiere vía API, dispara el triaje, enruta por severidad y notifica | n8n (`n8n/workflows/soc_lite_triage.json`) |
 | **API / lógica de negocio** | REST del dashboard + microservicio de triaje | FastAPI (`backend/app`) |
 | **Triaje** | Enriquecimiento + clasificación + resumen + acciones | LangChain `create_agent` con tools y `response_format` (Pydantic) |
 | **LLM local** | Inferencia sin exfiltrar datos de alertas | Ollama (`llama3.1`/`mistral`), fallback heurístico si no responde |
@@ -15,36 +15,42 @@
 ### Flujo completo
 
 ```
-Wazuh/OPNsense ──webhook──► n8n ──► IF (duplicados / severidad < media)
-                                     │
-                                     ▼
-                          PostgreSQL alerts (status=pending)
-                                     │
-                                     ▼
-                     POST /api/v1/triage/{id}  (FastAPI)
-                                     │
-                     ┌───────────────┴────────────────┐
-                     ▼                                ▼
-          enrich_ip() → enrichment_data      LangChain agent (tools:
-          (VT/AbuseIPDB/GeoIP/mock)           virustotal, abuseipdb,
-                     │                        geoip, threat_intel_local)
-                     │                        + ChatOllama (Ollama local)
-                     │                                │
-                     │                    si falla → _heuristic()
-                     └───────────────┬────────────────┘
-                                     ▼
-                     triage_results (veredicto, severidad, confianza,
-                                     resumen, acciones, motor, latencia)
-                                     │
-                                     ▼
-                     Switch por severidad
-                     ├─ alta   → Slack/Telegram + ticket osTicket + bitácora
-                     ├─ media  → ticket osTicket + bitácora
-                     └─ baja   → bitácora
-                                     │
-                                     ▼
-                     Dashboard (React) lee /metrics/overview y /alerts
+Wazuh/OPNsense ──webhook──► n8n ──► Code (normaliza) ──► IF (alerta válida)
+                                                                  │
+                                                                  ▼
+                                        POST /api/v1/alerts/webhook (token, dedup SHA-256)
+                                                                  │
+                                                                  ▼
+                                    POST /api/v1/auth/login/json (usuario de servicio)
+                                                                  │
+                                                                  ▼
+                                    POST /api/v1/triage/{id}  (FastAPI)
+                                                                  │
+                                                  ┌───────────────┴────────────────┐
+                                                  ▼                                ▼
+                                       enrich_ip() → enrichment_data      LangChain agent (tools:
+                                       (VT/AbuseIPDB/GeoIP/mock)           virustotal, abuseipdb,
+                                                  │                        geoip, threat_intel_local)
+                                                  │                        + ChatOllama (Ollama local)
+                                                  │                                │
+                                                  │                    si falla → _heuristic()
+                                                  └───────────────┬────────────────┘
+                                                                  ▼
+                                                  triage_results (veredicto, severidad, confianza,
+                                                                  resumen, acciones, motor, latencia)
+                                                  + alert.status='triaged' + audit_log (EXECUTE)
+                                                                  │
+                                                                  ▼
+                                                  Switch por severidad
+                                                  ├─ alta   → Slack + ticket osTicket
+                                                  ├─ media  → ticket osTicket
+                                                  └─ baja   → fin sin notificación
+                                                                  │
+                                                                  ▼
+                                                  Dashboard (React) lee /metrics/overview y /alerts
 ```
+
+n8n no escribe en PostgreSQL: toda escritura pasa por FastAPI (RBAC, deduplicación y auditoría).
 
 ## 2. Capas
 
@@ -64,22 +70,27 @@ Wazuh/OPNsense ──webhook──► n8n ──► IF (duplicados / severidad <
 ### Capa de datos (PostgreSQL)
 Ver modelo en la sección 4. JSONB para `raw_payload`, `value` (enrichment), `recommended_actions` y `details` (auditoría).
 
-## 3. Flujo de nodos n8n (10 pasos)
+## 3. Flujo de nodos n8n (8 pasos + fin de rama)
+
+Versión validada: **n8n 2.45.5**. Versiones de nodo: Webhook `2.2`, Code `2`, IF `2.4`,
+HTTP Request `4.5`, Switch `3.5`, Slack `2.7`, NoOp `1`.
 
 | # | Nodo | Función | Entrada → Salida |
 |---|---|---|---|
-| 1 | Webhook | Recibe alerta Wazuh/OPNsense (`POST /webhook/soc-alert`) | JSON crudo → payload normalizado |
-| 2 | IF | Filtra duplicados (`is_duplicate`) y severidad < media | payload → booleano (false → se descarta) |
-| 3 | PostgreSQL | Persiste alerta `pending` con dedup (`md5`, `ON CONFLICT DO NOTHING RETURNING id`) | payload → `alert_id` |
-| 4 | HTTP Request | `POST /api/v1/triage/{alert_id}` con JWT (3 reintentos, timeout 120 s) | `alert_id` → JSON de triaje |
-| 5 | *Agente LangChain* | **Dentro de FastAPI**: VirusTotal/AbuseIPDB/GeoIP/inteligencia local, clasifica, resume, recomienda | alerta + tools → veredicto, severidad, confianza, resumen, acciones |
-| 6 | Switch | Enruta por `predicted_severity` (alta/media/baja) | triaje → 3 ramas |
-| 7 | PostgreSQL | Guarda fila en `triage_results` y marca `alerts.status='triaged'` | JSON → fila |
-| 8 | Slack/Telegram | Notifica **solo severidad alta** | resumen → mensaje |
-| 9 | HTTP Request | Crea ticket en osTicket/Redmine (alta y media) | triaje → `ticket_id` |
-| 10 | HTTP Request | Registra en bitácora: `POST /api/v1/audit` (`module=triage`, `action=EXECUTE`, `username=n8n`) | acción → confirmación |
+| 1 | Webhook | Recibe alerta Wazuh/OPNsense (`POST /webhook/soc-alert`, header auth) | JSON crudo → items |
+| 2 | Code | Normaliza a `AlertCreate` (severidad numérica o texto, IPs, título, `raw_payload`) | JSON crudo → alerta normalizada |
+| 3 | IF | Descarta alertas sin severidad válida o sin IP | alerta → booleano (false → fin) |
+| 4 | HTTP Request | `POST /api/v1/alerts/webhook` con `X-Webhook-Token`; dedup SHA-256 en backend | alerta → `{id, status, duplicates_total}` |
+| 5 | HTTP Request | `POST /api/v1/auth/login/json` del usuario de servicio (rol analyst) | credenciales de entorno → JWT |
+| 6 | HTTP Request | `POST /api/v1/triage/{id}` con Bearer; enriquece, clasifica y **persiste** triaje + auditoría | JWT + id → JSON de triaje |
+| 7 | Switch | Enruta por `predicted_severity` (alta/media/baja) | triaje → 3 ramas |
+| 8 | Slack | Notifica **solo severidad alta** | resumen → mensaje |
+| 9 | HTTP Request | Crea ticket en osTicket (alta) | triaje → `ticket_id` |
+| 10 | HTTP Request | Crea ticket en osTicket (media) | triaje → `ticket_id` |
+| 11 | NoOp | Fin de la rama baja (sin notificación) | — |
 
-Workflow exportable: `n8n/workflows/soc_lite_triage.json` (incluye notas con credenciales y variables de entorno).
+Workflow exportable: `n8n/workflows/soc_lite_triage.json`; instrucciones en
+[`n8n/README.md`](../n8n/README.md). No se versionan credenciales.
 
 ## 4. Modelo de datos (PostgreSQL)
 
@@ -118,7 +129,7 @@ users (user_id) ──┐                  audit_log       report_exports
 
 ## 5. Datos semilla (`python -m app.seed`)
 
-- 3 roles + 3 usuarios (admin/analyst/viewer).
+- 3 roles + 3 usuarios (admin/analyst/viewer) + usuario de servicio `n8n` (solo si `N8N_SERVICE_PASSWORD` está definida).
 - 60 alertas en 7 días con 20 plantillas estilo Wazuh/OPNsense (IPs maliciosas conocidas + IPs internas/benignas), ~80 % de las antiguas pre-triadas → ~12 pendientes para probar el flujo.
 - 180 filas de `enrichment_data` (VT/AbuseIPDB/GeoIP en modo simulado determinista).
 - 48 `triage_results` (motor heurístico) con veredictos mixtos → tasa de FP realista.

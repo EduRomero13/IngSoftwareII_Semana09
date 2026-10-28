@@ -6,6 +6,7 @@ Uso:  python -m app.seed            (idempotente, omite si ya hay datos)
 
 import asyncio
 import hashlib
+import os
 import random
 import sys
 from datetime import datetime, timedelta
@@ -62,6 +63,33 @@ BENIGN_IPS = ["192.168.1.45", "192.168.1.102", "192.168.2.15", "10.0.0.24", "10.
 BENIGN_PUBLIC = ["8.8.8.8", "1.1.1.1", "151.101.1.69"]
 
 
+async def _ensure_service_user(db) -> None:
+    """Crea el usuario de servicio de n8n si la BD ya estaba sembrada."""
+    username = os.getenv("N8N_SERVICE_USER", "n8n")
+    password = os.getenv("N8N_SERVICE_PASSWORD")
+    if not password:
+        return
+    existing = (
+        await db.execute(select(User).where(User.username == username))
+    ).scalar_one_or_none()
+    if existing:
+        return
+    role_id = (
+        await db.execute(select(Role.id).where(Role.name == "analyst"))
+    ).scalar_one()
+    db.add(
+        User(
+            username=username,
+            email=f"{username}@soclite.local",
+            full_name="n8n (servicio)",
+            password_hash=hash_password(password),
+            role_id=role_id,
+        )
+    )
+    await db.commit()
+    print(f"  usuario de servicio n8n={username} (agregado a seed existente)")
+
+
 async def seed(reset: bool = False) -> None:
     if reset:
         async with engine.begin() as conn:
@@ -71,6 +99,7 @@ async def seed(reset: bool = False) -> None:
     async with SessionLocal() as db:
         existing_users = (await db.execute(select(func.count(User.id)))).scalar() or 0
         if existing_users:
+            await _ensure_service_user(db)
             print("Seed ya aplicado (existentes: %d usuarios). Usa --reset para recrear." % existing_users)
             return
 
@@ -93,7 +122,25 @@ async def seed(reset: bool = False) -> None:
             db.add(user)
             await db.flush()
             users[username] = user
-        print(f"  roles={len(ROLES)} usuarios={len(USERS)}")
+
+        # Usuario de servicio para n8n: la password solo existe en el entorno.
+        service_user = os.getenv("N8N_SERVICE_USER", "n8n")
+        service_password = os.getenv("N8N_SERVICE_PASSWORD")
+        if service_password:
+            user = User(
+                username=service_user,
+                email=f"{service_user}@soclite.local",
+                full_name="n8n (servicio)",
+                password_hash=hash_password(service_password),
+                role_id=role_ids["analyst"],
+            )
+            db.add(user)
+            await db.flush()
+            users[service_user] = user
+            print(f"  usuario de servicio n8n={service_user}")
+        else:
+            print("  N8N_SERVICE_PASSWORD no definida: no se crea el usuario de servicio n8n")
+        print(f"  roles={len(ROLES)} usuarios={len(users)}")
 
         # --- Alertas (7 días) ---
         rng = random.Random(42)

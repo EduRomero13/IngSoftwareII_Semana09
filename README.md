@@ -64,7 +64,7 @@ Todo lo siguiente es **opcional**. Sin ello el sistema arranca y opera completo
 | **Ollama + `llama3.1`** | El triaje usa el **fallback heurístico** determinista (motor `heuristic`) | Instala [ollama.com](https://ollama.com) → `ollama pull llama3.1` → el triaje usa LLM real (`engine: llm`). Config: `OLLAMA_BASE_URL`, `OLLAMA_MODEL` |
 | **API key VirusTotal** | Enriquecimiento en **modo simulado** determinista (`ENRICHMENT_MOCK=true`) | `VIRUSTOTAL_API_KEY=...` en `.env` y `ENRICHMENT_MOCK=false` |
 | **API key AbuseIPDB** | Igual que arriba (respuestas simuladas con IPs de inteligencia local) | `ABUSEIPDB_API_KEY=...` en `.env` |
-| **n8n** | El flujo low-code; la API ya recibe alertas por webhook y tría por endpoint/ UI | `docker compose --profile n8n up -d` e importar `n8n/workflows/soc_lite_triage.json` |
+| **n8n** | El flujo low-code; la API ya recibe alertas por webhook y tría por endpoint/ UI | `docker compose --profile n8n up -d` e importar `n8n/workflows/soc_lite_triage.json` (ver [`n8n/README.md`](n8n/README.md)) |
 | **Slack / osTicket / Redmine** | Notificaciones y tickets (solo del workflow n8n) | Credenciales dentro de n8n |
 | **DeepSeek / OpenAI u otros LLM en la nube** | Nada: **no están integrados** (por diseño, las alertas no salen hacia APIs externas de LLM; solo Ollama local) | — |
 | **Docker** | Usas la instalación manual de arriba | Alternativa completa: `docker compose up -d postgres api` (+ perfiles `frontend`, `n8n`, `llm`) |
@@ -113,19 +113,20 @@ docker compose --profile llm up -d         # + ollama en :11434 (opcional)
 | Reportes | ReportLab (PDF) · python-docx (Word) · openpyxl (Excel) | sin ofimática externa |
 | Frontend | React 18 · Vite · Tailwind CSS v4 · Recharts | SPA de dashboard |
 | Despliegue | Docker Compose | 1 servidor para PYME |
-| Tests | pytest + pytest-asyncio + httpx | 11 tests de integración |
+| Tests | pytest + pytest-asyncio + httpx | unitarios sin servicios + integración |
 
 ## Arquitectura (3 capas)
 
 ```
                         ┌─────────────────────────────────────────────┐
-  Wazuh / OPNsense ───► │  n8n (workflow soc_lite_triage.json)        │
-     webhook            │  1 Webhook → 2 IF → 3 PG( pending )        │
-                        │  4 HTTP ─────────────┐                      │
-                        │  6 Switch → 7 PG(triaje) → 8 Slack          │
-                        │         └──────────→ 9 osTicket → 10 audit  │
-                        └────────────┬───────────▲────────────────────┘
-                                     ▼           │ POST /api/v1/audit
+  Wazuh / OPNsense ───► │  n8n (soc_lite_triage.json, 2.45.5)         │
+     webhook            │  1 Webhook → 2 Code normaliza → 3 IF        │
+                        │  4 POST /alerts/webhook (X-Webhook-Token)   │
+                        │  5 login servicio → 6 POST /triage/{id}     │
+                        │  7 Switch → 8 Slack (alta) → 9/10 osTicket  │
+                        │         └─ baja → 11 fin                    │
+                        └────────────┬────────────────────────────────┘
+                                     ▼ REST (token webhook + JWT)
 ┌────────────────────────────────────────────────────────────────────┐
 │  FASTAPI (backend/app)                                             │
 │  · Presentación: API REST /api/v1/* (auth, alerts, triage,         │
@@ -186,22 +187,36 @@ una lista local de inteligencia (Tor/botnet/C2 conocidas).
 
 ## Workflow n8n (opcional)
 
-Importar [`n8n/workflows/soc_lite_triage.json`](n8n/workflows/soc_lite_triage.json) en n8n
-(*Workflows → Import from File*) y configurar:
+n8n **orquesta** y FastAPI es la única ruta de escritura (RBAC, dedup SHA-256, triaje
+persistido y auditoría). Versión validada: **n8n 2.45.5**.
 
-1. Credencial **PostgreSQL** (`postgres:5432`, db/user/pass `soclite`).
-2. Credencial **Header Auth** con `Authorization: Bearer <JWT>` (obtenerlo con `POST /api/v1/auth/login/json` como `admin`).
-3. Variables de entorno: `SOC_API_URL`, `SOC_API_TOKEN`, `OSTICKET_URL`, `OSTICKET_API_KEY`.
-4. Credencial Slack y canal `#soc-alertas` (notificación solo de severidad alta).
+1. Definir en `.env`: `N8N_SERVICE_USER`, `N8N_SERVICE_PASSWORD`, `N8N_ENCRYPTION_KEY`
+   (`openssl rand -hex 32`), `WEBHOOK_TOKEN`, `SLACK_CHANNEL`, `OSTICKET_URL`, `OSTICKET_API_KEY`.
+2. Ejecutar `python -m app.seed` para crear el usuario de servicio (rol `analyst`).
+3. Importar [`n8n/workflows/soc_lite_triage.json`](n8n/workflows/soc_lite_triage.json):
+   ```bash
+   docker compose --profile n8n run --rm n8n import:workflow --input=/workflows/soc_lite_triage.json
+   docker compose --profile n8n up -d n8n
+   ```
+4. En la UI de n8n crear solo dos credenciales: **Header Auth** del webhook
+   (`X-Webhook-Token`, mismo valor que `WEBHOOK_TOKEN`) y **Slack API**.
+5. Flujo: Webhook → Code (normaliza) → IF → `POST /alerts/webhook` → login de servicio →
+   `POST /triage/{id}` → Switch por severidad → Slack (solo alta) → osTicket (alta/media).
 
-Los 10 nodos del flujo están documentados con notas (sticky notes) dentro del propio workflow.
+Detalle, variables y prueba manual: [`n8n/README.md`](n8n/README.md).
 
 ## Tests
 
 ```bash
-cd backend && python -m pytest -q     # requiere PostgreSQL (crea/dropea la BD soclite_test)
-cd frontend && npm run build          # verificación de build del SPA
+cd backend
+python -m pytest -q              # unitarios: sin PostgreSQL ni red (< 15 s)
+python -m pytest -m integration  # integración: requiere PostgreSQL (crea soclite_test)
+cd ../frontend && npm run build  # verificación de build del SPA
 ```
+
+La suite unitaria incluye el contrato del workflow de n8n
+(`tests/unit/test_n8n_workflow.py`): versiones de nodo, conexiones, ramas de severidad,
+ausencia de secretos y de escrituras directas a PostgreSQL.
 
 ## Estructura del proyecto
 
@@ -217,8 +232,12 @@ cd frontend && npm run build          # verificación de build del SPA
 │   │   ├── api/v1/               # auth users alerts triage incidents metrics reports audit health
 │   │   ├── services/             # triage(LangChain) · enrichment · metrics · reports
 │   │   └── seed/__main__.py      # python -m app.seed [--reset]
-│   └── tests/                    # 11 tests de integración
+│   └── tests/
+│       ├── unit/                 # unitarios sin servicios externos
+│       └── integration/          # requieren PostgreSQL
 ├── frontend/                     # React + Vite + Tailwind + Recharts
-├── n8n/workflows/soc_lite_triage.json
+├── n8n/
+│   ├── workflows/soc_lite_triage.json
+│   └── README.md                 # importación, credenciales y variables
 └── docs/                         # architecture.md · datasets.md
 ```
