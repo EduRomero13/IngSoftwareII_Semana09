@@ -45,7 +45,9 @@ services:
       retries: 10
       start_period: 60s
     networks:
-      - internal
+      internal:
+        aliases:
+          - soclite-api
 
   frontend:
     build: ./frontend
@@ -88,7 +90,7 @@ services:
       N8N_SECURE_COOKIE: "true"
       GENERIC_TIMEZONE: "America/Lima"
       TZ: "America/Lima"
-      SOC_API_URL: http://api:8000
+      SOC_API_URL: http://soclite-api:8000
       SOC_WEBHOOK_TOKEN: ${WEBHOOK_TOKEN}
       SOC_API_USER: ${N8N_SERVICE_USER:-n8n}
       SOC_API_PASSWORD: ${N8N_SERVICE_PASSWORD:-}
