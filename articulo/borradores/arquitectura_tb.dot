@@ -1,0 +1,69 @@
+digraph SOCLite {
+  graph [rankdir=TB, fontname="Liberation Sans", fontsize=11, bgcolor="white",
+         pad=0.25, nodesep=0.30, ranksep=0.55, compound=true, newrank=true];
+  node  [shape=box, style="rounded,filled", fontname="Liberation Sans", fontsize=9.5,
+         color="#94a3b8", fillcolor="#f8fafc", penwidth=1.1, margin="0.10,0.06"];
+  edge  [fontname="Liberation Sans", fontsize=8.5, color="#475569", arrowsize=0.65, penwidth=1.0];
+
+  subgraph cluster_src {
+    label="1. Fuentes"; fontsize=10; fontcolor="#1e3a8a"; color="#bfdbfe"; style="rounded,dashed";
+    wazuh [label="Wazuh\n(reglas 0–16)", fillcolor="#dbeafe"];
+    opn   [label="OPNsense\n(IDS / firewall)", fillcolor="#dbeafe"];
+  }
+
+  subgraph cluster_n8n {
+    label="2. Orquestación low-code · n8n 2.45.5"; fontsize=10; fontcolor="#5b21b6"; color="#ddd6fe"; style="rounded,dashed";
+    hook  [label="Webhook\nPOST /soc-alert", fillcolor="#ede9fe"];
+    norm  [label="Normalizar\nseveridad + IP", fillcolor="#ede9fe"];
+    valid [label="IF\nalerta válida", shape=diamond, style="filled", fillcolor="#f5f3ff", height=0.7, width=1.0];
+    ing   [label="POST /alerts/webhook\nX-Webhook-Token", fillcolor="#ede9fe"];
+    login [label="POST /auth/login\nusuario de servicio", fillcolor="#ede9fe"];
+    call  [label="POST /triage/{id}\nBearer JWT", fillcolor="#ede9fe"];
+    sw    [label="Switch por\nseveridad predicha", shape=diamond, style="filled", fillcolor="#f5f3ff", height=0.75, width=1.1];
+  }
+
+  subgraph cluster_api {
+    label="3. API y lógica de negocio · FastAPI"; fontsize=10; fontcolor="#065f46"; color="#a7f3d0"; style="rounded,dashed";
+    api   [label="API REST /api/v1\nRBAC + JWT + auditoría", fillcolor="#d1fae5"];
+    dedup [label="Deduplicación\nSHA-256", fillcolor="#d1fae5"];
+    tri   [label="Servicio de triaje\nenriquecimiento + agente", fillcolor="#d1fae5"];
+    pol   [label="Política de decisión\nconfianza + umbral", fillcolor="#d1fae5"];
+  }
+
+  subgraph cluster_llm {
+    label="4. Inferencia local · sin salida a APIs externas"; fontsize=10; fontcolor="#9a3412"; color="#fed7aa"; style="rounded,dashed";
+    enr   [label="Herramientas de enriquecimiento\nVirusTotal · AbuseIPDB\nGeoIP · intel local", fillcolor="#ffedd5"];
+    agent [label="Agente LangChain\nllama3.1 8B (Ollama)\nsalida Pydantic", fillcolor="#ffedd5"];
+    fall  [label="Fallback heurístico\ndeterminista", fillcolor="#ffedd5"];
+  }
+
+  subgraph cluster_data {
+    label="5. Persistencia y control"; fontsize=10; fontcolor="#334155"; color="#cbd5e1"; style="rounded,dashed";
+    pg    [label="PostgreSQL 16\nalerts · triage_results\nenrichment_data · audit_log", shape=cylinder, style="filled", fillcolor="#e2e8f0"];
+  }
+
+  subgraph cluster_ui {
+    label="6. Presentación y respuesta"; fontsize=10; fontcolor="#9d174d"; color="#fbcfe8"; style="rounded,dashed";
+    dash  [label="Dashboard React\nKPIs · MTTT · FP%\ncola priorizada", fillcolor="#fce7f3"];
+    slack [label="Slack\nsolo severidad alta", fillcolor="#fce7f3"];
+    ost   [label="osTicket\nalta / media", fillcolor="#fce7f3"];
+  }
+
+  wazuh -> hook;
+  opn   -> hook;
+  hook  -> norm -> valid;
+  valid -> ing [label="válida"];
+  ing   -> dedup;
+  dedup -> pg [label="alta / dedup"];
+  ing   -> login -> call -> tri;
+  tri   -> enr;
+  tri   -> agent;
+  agent -> fall [style=dashed, label="timeout / error", fontcolor="#b91c1c", color="#b91c1c"];
+  enr   -> agent [style=dashed, label="contexto", fontcolor="#9a3412"];
+  tri   -> pol -> pg [label="resultado + auditoría"];
+  pol   -> sw  [label="respuesta"];
+  sw    -> slack [label="alta"];
+  sw    -> ost   [label="alta / media"];
+  pg    -> dash  [label="consultas", style=dashed];
+  call  -> dash  [label="JSON de triaje", style=dashed];
+}
