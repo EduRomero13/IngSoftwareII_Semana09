@@ -11,7 +11,7 @@ combinando **orquestación low-code (n8n)**, **enriquecimiento contextual** y
 
 ## 🚀 Inicio rápido (otra PC · lo mínimo)
 
-Necesitas **solo 3 cosas**: **Python 3.11+**, **Node.js 20+** y **PostgreSQL (14+)** corriendo.
+Necesitas  **solo 3 cosas**: **Python 3.11+**, **Node.js 20+** y **PostgreSQL (14+)** corriendo.
 Nada más es obligatorio (ver tabla de abajo).
 
 ```bash
@@ -60,7 +60,7 @@ Todo lo siguiente es **opcional**. Sin ello el sistema arranca y opera completo
 (triaje, dashboard, reportes, auditoría, RBAC):
 
 | Componente | Sin él… | Si lo añades después |
-|---|---|---|
+| --- | --- | --- |
 | **Ollama + `llama3.1`** | El triaje usa el **fallback heurístico** determinista (motor `heuristic`) | Instala [ollama.com](https://ollama.com) → `ollama pull llama3.1` → el triaje usa LLM real (`engine: llm`). Config: `OLLAMA_BASE_URL`, `OLLAMA_MODEL` |
 | **API key VirusTotal** | Enriquecimiento en **modo simulado** determinista (`ENRICHMENT_MOCK=true`) | `VIRUSTOTAL_API_KEY=...` en `.env` y `ENRICHMENT_MOCK=false` |
 | **API key AbuseIPDB** | Igual que arriba (respuestas simuladas con IPs de inteligencia local) | `ABUSEIPDB_API_KEY=...` en `.env` |
@@ -75,7 +75,7 @@ Todo lo siguiente es **opcional**. Sin ello el sistema arranca y opera completo
 Solo estas 3 importan para arrancar; **el resto tiene defaults funcionales** (ver `.env.example`):
 
 | Variable | Valor por defecto | Para qué |
-|---|---|---|
+| --- | --- | --- |
 | `DATABASE_URL` | `postgresql+asyncpg://soclite:soclite@localhost:5432/soclite` | conexión a PostgreSQL |
 | `JWT_SECRET` | `change-me-in-production` | firma de tokens — **cámbiala en cualquier despliegue real** |
 | `WEBHOOK_TOKEN` | `soclite-webhook-token` | autenticación de `POST /api/v1/alerts/webhook` |
@@ -83,7 +83,7 @@ Solo estas 3 importan para arrancar; **el resto tiene defaults funcionales** (ve
 ### 🧪 Credenciales semilla
 
 | Usuario | Contraseña | Rol | Permisos |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | `admin` | `Admin123!` | admin | todo (usuarios, auditoría global, reportes) |
 | `analyst` | `Analyst123!` | analyst | alertas, triaje, incidentes, reportes, auditoría |
 | `viewer` | `Viewer123!` | viewer | solo lectura de dashboard/alertas/reportes (auditoría propia) |
@@ -106,7 +106,7 @@ docker compose --profile llm up -d         # + ollama en :11434 (opcional)
 ## Stack
 
 | Capa | Tecnología | Justificación |
-|---|---|---|
+| --- | --- | --- |
 | Orquestación | n8n (workflow exportable) | dominio del equipo, integraciones, reintentos |
 | Backend / API | Python 3.11+ · FastAPI · Uvicorn | una sola API para dashboard y microservicio de triaje |
 | ORM / migraciones | SQLAlchemy 2 async · Alembic · asyncpg | migraciones versionadas, JSONB para payloads |
@@ -162,6 +162,7 @@ Detalle completo: [`docs/architecture.md`](docs/architecture.md) · Datasets pú
 ollama pull llama3.1
 ollama serve                            # default: http://localhost:11434
 ```
+
 El backend lo detecta solo (`GET /api/v1/health` muestra `llm: ok`); si no responde,
 el triaje cae al fallback heurístico sin romper el flujo. Config en `.env`:
 `OLLAMA_BASE_URL`, `OLLAMA_MODEL=llama3.1`, `LLM_TIMEOUT_SECONDS`, `TRIAGE_FALLBACK_ENABLED=true`.
@@ -174,7 +175,7 @@ una lista local de inteligencia (Tor/botnet/C2 conocidas).
 ## API principal (`/api/v1`)
 
 | Método | Ruta | Permiso | Descripción |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | POST | `/auth/login/json` | público | login → JWT + permisos |
 | POST | `/auth/logout` | sesión | OUT en bitácora |
 | GET | `/alerts` | alerts.read | listado con filtros/severidad/estado/paginación |
