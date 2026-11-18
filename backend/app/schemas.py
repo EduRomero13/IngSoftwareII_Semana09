@@ -184,4 +184,21 @@ class Paginated(BaseModel):
     items: list
 
 
+# ---------- Clasificador ML ----------
+class MLPredictIn(BaseModel):
+    title: str
+    description: str | None = None
+    src_ip: str | None = None
+    severity: str = "media"
+    source: str = "wazuh"
+
+
+class MLPredictOut(BaseModel):
+    verdict: str
+    severity: str
+    confidence: float
+    model_name: str
+    latency_ms: int
+
+
 AlertDetailOut.model_rebuild()

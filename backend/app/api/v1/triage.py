@@ -6,10 +6,29 @@ from sqlalchemy.orm import selectinload
 from app.core.rbac import CurrentUser, require_permission
 from app.database import get_db
 from app.models import Alert, TriageResult
-from app.schemas import TriageOut
+from app.schemas import MLPredictIn, MLPredictOut, TriageOut
+from app.services import ml_classifier
 from app.services.triage import run_triage
 
 router = APIRouter(prefix="/triage", tags=["triage"])
+
+
+@router.post("/predict", response_model=MLPredictOut)
+async def predict_alert(
+    body: MLPredictIn,
+    _: CurrentUser = Depends(require_permission("triage.execute")),
+):
+    """Inferencia del clasificador ML (sin escribir en la base de datos)."""
+    try:
+        result = ml_classifier.predict(
+            title=body.title,
+            description=body.description,
+            severity=body.severity,
+            source=body.source,
+        )
+    except ml_classifier.ModelUnavailable as exc:
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, str(exc))
+    return MLPredictOut(**result)
 
 
 @router.post("/{alert_id}", response_model=TriageOut)

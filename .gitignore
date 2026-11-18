@@ -11,3 +11,6 @@ backend/test.db
 backend/*.db
 .coverage
 htmlcov/
+backend/ml/model.joblib
+loadtest/results/
+*.jtl

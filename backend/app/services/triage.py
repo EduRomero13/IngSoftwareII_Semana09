@@ -5,9 +5,6 @@ import asyncio
 import time
 from typing import Any
 
-from langchain.agents import create_agent
-from langchain_core.tools import tool
-from langchain_ollama import ChatOllama
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -42,6 +39,9 @@ class TriageDecision(BaseModel):
 
 
 def build_tools() -> list:
+    # Import perezoso: LangChain es opcional, el fallback heurístico funciona sin él.
+    from langchain_core.tools import tool
+
     @tool("virustotal_lookup")
     async def virustotal_lookup(ioc: str) -> dict[str, Any]:
         """Consulta reputación de una IP o hash en VirusTotal (modo simulado sin API key)."""
@@ -189,6 +189,9 @@ async def run_triage(db: AsyncSession, alert: Alert, *, username: str | None = N
     # 2) Intento con agente LangChain + Ollama
     if await _llm_available():
         try:
+            from langchain.agents import create_agent
+            from langchain_ollama import ChatOllama
+
             model = ChatOllama(
                 base_url=settings.ollama_base_url,
                 model=settings.ollama_model,

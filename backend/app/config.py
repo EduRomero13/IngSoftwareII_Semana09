@@ -11,6 +11,9 @@ class Settings(BaseSettings):
     api_v1_prefix: str = "/api/v1"
 
     database_url: str = "postgresql+asyncpg://soclite:soclite@localhost:5432/soclite"
+    # Pool dimensionado para pruebas de carga (40 hilos concurrentes en la demo).
+    db_pool_size: int = 20
+    db_max_overflow: int = 20
 
     jwt_secret: str = "change-me-in-production"
     jwt_algorithm: str = "HS256"

@@ -1,0 +1,63 @@
+{
+  "model": "tfidf+logistic_regression",
+  "train_rows": 9600,
+  "test_rows": 2400,
+  "train_seconds": 0.76,
+  "accuracy": 0.945,
+  "macro_f1": 0.9256,
+  "labels": [
+    "verdadero_positivo",
+    "sospechoso",
+    "falso_positivo"
+  ],
+  "confusion_matrix": [
+    [
+      1512,
+      16,
+      12
+    ],
+    [
+      34,
+      383,
+      14
+    ],
+    [
+      44,
+      12,
+      373
+    ]
+  ],
+  "classification_report": {
+    "verdadero_positivo": {
+      "precision": 0.9509433962264151,
+      "recall": 0.9818181818181818,
+      "f1-score": 0.9661341853035144,
+      "support": 1540.0
+    },
+    "sospechoso": {
+      "precision": 0.9318734793187348,
+      "recall": 0.888631090487239,
+      "f1-score": 0.9097387173396675,
+      "support": 431.0
+    },
+    "falso_positivo": {
+      "precision": 0.9348370927318296,
+      "recall": 0.8694638694638694,
+      "f1-score": 0.9009661835748792,
+      "support": 429.0
+    },
+    "accuracy": 0.945,
+    "macro avg": {
+      "precision": 0.9392179894256598,
+      "recall": 0.9133043805897634,
+      "f1-score": 0.9256130287393537,
+      "support": 2400.0
+    },
+    "weighted avg": {
+      "precision": 0.944639755232087,
+      "recall": 0.945,
+      "f1-score": 0.9443577188726798,
+      "support": 2400.0
+    }
+  }
+}

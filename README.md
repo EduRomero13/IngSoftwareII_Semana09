@@ -247,3 +247,20 @@ ausencia de secretos y de escrituras directas a PostgreSQL.
 │   └── README.md                 # importación, credenciales y variables
 └── docs/                         # architecture.md · datasets.md
 ```
+
+## Pruebas de carga y clasificador IA
+
+Demo reproducible con 100.000 alertas ficticias, JMeter y un clasificador
+TF-IDF + regresión logística. Instrucciones completas y resultados medidos en
+[`loadtest/README.md`](loadtest/README.md).
+
+```bash
+# API sin LLM (fallback heurístico determinista)
+cd backend && LLM_PROVIDER=none uvicorn app.main:app --port 8000
+
+# Entrenar el clasificador (una vez)
+cd backend && python -m ml.train
+
+# Carga con JMeter (requiere JMeter instalado)
+C:\tools\apache-jmeter-5.6.3\bin\jmeter.bat -n -t loadtest/soclite.jmx -l loadtest/results/run.jtl -e -o loadtest/results/html
+```
