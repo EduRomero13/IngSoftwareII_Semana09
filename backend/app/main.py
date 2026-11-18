@@ -1,7 +1,9 @@
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 from fastapi import FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 
 from app.api.v1 import alerts, audit, auth, health, incidents, metrics, reports, triage, users
 from app.config import settings
@@ -90,12 +92,18 @@ app.include_router(metrics.router, prefix=API_ROUTER)
 app.include_router(reports.router, prefix=API_ROUTER)
 app.include_router(audit.router, prefix=API_ROUTER)
 
+# Web de demo (un solo archivo, misma origen que la API: sin CORS).
+DEMO_DIR = Path(__file__).resolve().parents[2] / "demo"
+if DEMO_DIR.is_dir():
+    app.mount("/demo", StaticFiles(directory=DEMO_DIR, html=True), name="demo")
+
 
 @app.get("/")
 async def root():
     return {
         "app": settings.app_name,
         "docs": "/docs",
+        "demo": "/demo",
         "health": "/api/v1/health",
         "version": "1.0.0",
     }

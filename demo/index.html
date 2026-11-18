@@ -1,0 +1,311 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SOC-Lite · Demo de carga + IA</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%239ef01a'/%3E%3Ctext x='16' y='23' font-size='20' font-family='sans-serif' font-weight='700' text-anchor='middle' fill='%230b0f12'%3ES%3C/text%3E%3C/svg%3E">
+<style>
+  :root{
+    --bg:#0b0f12; --panel:#12181d; --line:#1f2a31; --text:#e6edf3;
+    --muted:#8b9aa6; --accent:#9ef01a; --alta:#ff4d4f; --media:#ffb020; --baja:#4dabf7;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:radial-gradient(1200px 600px at 15% -10%,#14251c 0,var(--bg) 55%);
+       color:var(--text);font:15px/1.5 system-ui,-apple-system,Segoe UI,sans-serif}
+  .mono{font-family:ui-monospace,SFMono-Regular,Consolas,monospace}
+  header{display:flex;align-items:center;justify-content:space-between;gap:16px;
+         padding:18px 28px;border-bottom:1px solid var(--line);position:sticky;top:0;
+         backdrop-filter:blur(8px);background:#0b0f12cc;z-index:5}
+  .brand{display:flex;align-items:center;gap:12px}
+  .logo{width:34px;height:34px;border-radius:9px;background:var(--accent);color:#0b0f12;
+        display:grid;place-items:center;font-weight:800}
+  h1{font-size:16px;margin:0;letter-spacing:.2px}
+  .sub{color:var(--muted);font-size:12px}
+  main{max-width:1180px;margin:0 auto;padding:26px 22px 60px}
+  .row{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+  .dot{width:8px;height:8px;border-radius:50%;background:#555}
+  .dot.ok{background:var(--accent);box-shadow:0 0 12px #9ef01a88}
+  a.btn,button.btn{border:1px solid var(--line);background:var(--panel);color:var(--text);
+       padding:8px 14px;border-radius:8px;text-decoration:none;font-size:13px;cursor:pointer}
+  button.btn.primary{background:var(--accent);color:#0b0f12;border-color:var(--accent);font-weight:700}
+  button.btn:disabled{opacity:.5;cursor:progress}
+  .cards{display:grid;grid-template-columns:repeat(6,1fr);gap:12px;margin:22px 0}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:14px 16px}
+  .card .k{color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.08em}
+  .card .v{font-size:26px;font-weight:700;margin-top:6px}
+  .grid2{display:grid;grid-template-columns:1.4fr 1fr;gap:16px;margin-bottom:16px}
+  .panel{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:18px}
+  .panel h2{font-size:13px;margin:0 0 14px;color:var(--muted);font-weight:600;
+            text-transform:uppercase;letter-spacing:.08em}
+  svg{width:100%;height:150px;display:block}
+  .bars{display:flex;flex-direction:column;gap:12px}
+  .bar{display:grid;grid-template-columns:60px 1fr 54px;align-items:center;gap:10px;font-size:13px}
+  .track{height:10px;background:#0d1317;border-radius:99px;overflow:hidden}
+  .fill{height:100%;border-radius:99px}
+  table{width:100%;border-collapse:collapse;font-size:13px}
+  th{text-align:left;color:var(--muted);font-weight:500;font-size:11px;
+     text-transform:uppercase;letter-spacing:.07em;padding:0 8px 8px}
+  td{padding:8px;border-top:1px solid var(--line)}
+  .badge{display:inline-block;padding:2px 8px;border-radius:99px;font-size:11px;font-weight:600}
+  .badge.alta{background:#ff4d4f22;color:var(--alta)}
+  .badge.media{background:#ffb02022;color:var(--media)}
+  .badge.baja{background:#4dabf722;color:var(--baja)}
+  .badge.status{background:#9ef01a15;color:var(--accent)}
+  input,select,textarea{width:100%;background:#0d1317;border:1px solid var(--line);
+       color:var(--text);border-radius:8px;padding:10px 12px;font:inherit}
+  label{display:block;font-size:11px;color:var(--muted);margin:10px 0 5px;
+        text-transform:uppercase;letter-spacing:.07em}
+  .result{margin-top:14px;padding:14px;border-radius:10px;border:1px solid var(--line);
+          background:#0d1317;min-height:64px;font-size:13px}
+  .result .big{font-size:19px;font-weight:700;margin-bottom:4px}
+  .samples{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:6px}
+  .samples button{font-size:11px;padding:5px 9px}
+  .muted{color:var(--muted)}
+  .overlay{position:fixed;inset:0;background:#0b0f12ee;display:grid;place-items:center;z-index:20}
+  .login{width:340px}
+  .err{color:#ff6b6b;font-size:12px;margin-top:8px;min-height:16px}
+  footer{margin-top:26px;color:var(--muted);font-size:12px;border-top:1px solid var(--line);padding-top:14px}
+  code{background:#0d1317;border:1px solid var(--line);border-radius:5px;padding:1px 5px;font-size:11px}
+  @media(max-width:900px){.cards{grid-template-columns:repeat(2,1fr)}.grid2{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<header>
+  <div class="brand">
+    <div class="logo">S</div>
+    <div>
+      <h1>SOC-Lite · demo</h1>
+      <div class="sub">100.000 alertas ficticias · JMeter + clasificador IA</div>
+    </div>
+  </div>
+  <div class="row">
+    <span class="dot" id="dot"></span><span class="sub mono" id="apiState">conectando…</span>
+    <a class="btn" href="/docs" target="_blank">Swagger</a>
+  </div>
+</header>
+
+<main>
+  <div class="cards">
+    <div class="card"><div class="k">Alertas</div><div class="v mono" id="cTotal">—</div></div>
+    <div class="card"><div class="k">Pendientes</div><div class="v mono" id="cPending">—</div></div>
+    <div class="card"><div class="k">Triadas</div><div class="v mono" id="cTriaged">—</div></div>
+    <div class="card"><div class="k">Incidentes abiertos</div><div class="v mono" id="cIncidents">—</div></div>
+    <div class="card"><div class="k">MTTT (s)</div><div class="v mono" id="cMttt">—</div></div>
+    <div class="card"><div class="k">Falsos positivos</div><div class="v mono" id="cFp">—</div></div>
+  </div>
+
+  <div class="grid2">
+    <div class="panel">
+      <h2>Tendencia 7 días</h2>
+      <svg id="chart" viewBox="0 0 600 150" preserveAspectRatio="none"></svg>
+      <div class="row" style="justify-content:space-between;margin-top:10px">
+        <span class="muted" style="font-size:12px">total vs. severidad alta</span>
+        <button class="btn" id="refresh">Refrescar</button>
+      </div>
+    </div>
+    <div class="panel">
+      <h2>Distribución por severidad</h2>
+      <div class="bars" id="sevBars"></div>
+      <h2 style="margin-top:22px">Top orígenes</h2>
+      <div id="topSources" class="mono" style="font-size:12px;display:grid;gap:6px"></div>
+    </div>
+  </div>
+
+  <div class="grid2">
+    <div class="panel">
+      <h2>Clasificador IA · en vivo</h2>
+      <div class="samples">
+        <button class="btn" data-s="ssh">SSH brute force</button>
+        <button class="btn" data-s="404">404 en wp-admin</button>
+        <button class="btn" data-s="tor">Salida a Tor</button>
+      </div>
+      <label for="title">Título</label>
+      <input id="title" value="Multiple failed SSH logins">
+      <label for="desc">Descripción</label>
+      <textarea id="desc" rows="2">25 intentos fallidos de autenticación en 5 minutos</textarea>
+      <label for="sev">Severidad original</label>
+      <select id="sev"><option>alta</option><option selected>media</option><option>baja</option></select>
+      <div class="row" style="margin-top:14px">
+        <button class="btn primary" id="predict">Clasificar</button>
+        <span class="muted" style="font-size:12px">POST /api/v1/triage/predict</span>
+      </div>
+      <div class="result" id="prediction">Sin predicción todavía.</div>
+    </div>
+
+    <div class="panel">
+      <h2>Resultados JMeter</h2>
+      <table>
+        <thead><tr><th>Corrida</th><th>req/s</th><th>p95</th><th>Error</th></tr></thead>
+        <tbody>
+          <tr><td>A · base</td><td class="mono">28,0</td><td class="mono">5,8 s</td><td class="mono">0 %</td></tr>
+          <tr><td>B · índices</td><td class="mono">23,5</td><td class="mono">5,8 s</td><td class="mono">0 %</td></tr>
+        </tbody>
+      </table>
+      <p class="muted" style="font-size:12px;line-height:1.6;margin:14px 0 0">
+        40 hilos lectura + 10 escritura. Los índices <strong>empeoraron</strong> el
+        throughput: cada GET escribe auditoría y el índice encarece la escritura.
+      </p>
+    </div>
+  </div>
+
+  <div class="panel">
+    <h2>Últimas alertas de severidad alta</h2>
+    <table>
+      <thead><tr><th>ID</th><th>Título</th><th>Severidad</th><th>Estado</th><th>Creada</th></tr></thead>
+      <tbody id="alerts"><tr><td colspan="5" class="muted">Cargando…</td></tr></tbody>
+    </table>
+  </div>
+
+  <footer>
+    Datos ficticios generados con <code>db/load_data.sql</code>. Guion y cifras:
+    <code>loadtest/README.md</code>. El LLM local está desactivado; la inferencia usa
+    TF-IDF + regresión logística (accuracy 0,945).
+  </footer>
+</main>
+
+<div class="overlay" id="login">
+  <div class="panel login">
+    <h2>Entrar al dashboard</h2>
+    <label for="user">Usuario</label>
+    <input id="user" value="admin">
+    <label for="pass">Contraseña</label>
+    <input id="pass" type="password" value="Admin123!">
+    <div class="row" style="margin-top:16px">
+      <button class="btn primary" id="doLogin">Entrar</button>
+      <span class="muted" style="font-size:12px">admin / Admin123!</span>
+    </div>
+    <div class="err" id="loginErr"></div>
+  </div>
+</div>
+
+<script>
+const API = "";
+let token = sessionStorage.getItem("soc_token") || "";
+const $ = (id) => document.getElementById(id);
+const num = (n) => new Intl.NumberFormat("es-CL").format(n);
+const when = (s) => new Date(s).toLocaleString("es-CL", {day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit"});
+
+async function api(path, opts = {}) {
+  const res = await fetch(API + path, {
+    ...opts,
+    headers: { "Content-Type": "application/json", ...(token ? { Authorization: "Bearer " + token } : {}), ...(opts.headers || {}) },
+  });
+  if (!res.ok) throw new Error((await res.text()) || res.status);
+  return res.json();
+}
+
+async function login() {
+  const body = JSON.stringify({ username: $("user").value, password: $("pass").value });
+  const res = await fetch(API + "/api/v1/auth/login/json", { method: "POST", headers: { "Content-Type": "application/json" }, body });
+  if (!res.ok) throw new Error("Credenciales inválidas");
+  const data = await res.json();
+  token = data.access_token;
+  sessionStorage.setItem("soc_token", token);
+}
+
+function setApi(ok, text) {
+  $("dot").className = "dot" + (ok ? " ok" : "");
+  $("apiState").textContent = text;
+}
+
+function renderChart(trend) {
+  const svg = $("chart");
+  if (!trend.length) { svg.innerHTML = ""; return; }
+  const W = 600, H = 150, P = 8;
+  const max = Math.max(...trend.map(t => t.total), 1);
+  const x = (i) => P + i * ((W - 2 * P) / Math.max(trend.length - 1, 1));
+  const y = (v) => H - P - (v / max) * (H - 2 * P);
+  const line = (key, color) => trend.map((t, i) => `${x(i)},${y(t[key])}`).join(" ");
+  svg.innerHTML = `
+    <polyline points="${line("total", "#9ef01a")}" fill="none" stroke="#9ef01a" stroke-width="2.5"/>
+    <polyline points="${line("alta", "#ff4d4f")}" fill="none" stroke="#ff4d4f" stroke-width="1.8" stroke-dasharray="4 4"/>
+    ${trend.map((t, i) => `<circle cx="${x(i)}" cy="${y(t.total)}" r="3" fill="#9ef01a"/>`).join("")}
+  `;
+}
+
+function renderSeverity(bySeverity) {
+  const total = Object.values(bySeverity).reduce((a, b) => a + b, 0) || 1;
+  const colors = { alta: "var(--alta)", media: "var(--media)", baja: "var(--baja)" };
+  $("sevBars").innerHTML = ["alta", "media", "baja"].map((k) => {
+    const v = bySeverity[k] || 0, pct = (v / total) * 100;
+    return `<div class="bar"><span>${k}</span>
+      <div class="track"><div class="fill" style="width:${pct}%;background:${colors[k]}"></div></div>
+      <span class="mono" style="text-align:right">${num(v)}</span></div>`;
+  }).join("");
+}
+
+function renderAlerts(items) {
+  $("alerts").innerHTML = items.map((a) => `
+    <tr>
+      <td class="mono">${a.id}</td>
+      <td>${escapeHtml(a.title)}</td>
+      <td><span class="badge ${a.severity}">${a.severity}</span></td>
+      <td><span class="badge status">${a.status}</span></td>
+      <td class="mono muted">${when(a.created_at)}</td>
+    </tr>`).join("");
+}
+
+const escapeHtml = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+
+async function loadAll() {
+  $("login").style.display = "none";
+  try {
+    const [health, m, alerts] = await Promise.all([
+      fetch(API + "/api/v1/health").then(r => r.json()),
+      api("/api/v1/metrics/overview?days=7"),
+      api("/api/v1/alerts?page=1&page_size=8&severity=alta"),
+    ]);
+    setApi(health.database === "ok", `API ${health.api} · DB ${health.database}`);
+    $("cTotal").textContent = num(m.total_alerts);
+    $("cPending").textContent = num(m.pending_alerts);
+    $("cTriaged").textContent = num(m.triaged_alerts);
+    $("cIncidents").textContent = num(m.open_incidents);
+    $("cMttt").textContent = m.avg_mttt_seconds.toFixed(1);
+    $("cFp").textContent = m.false_positive_rate.toFixed(1) + " %";
+    renderChart(m.trend);
+    renderSeverity(m.by_severity);
+    $("topSources").innerHTML = (m.top_sources || []).map(t =>
+      `<div class="row" style="justify-content:space-between"><span>${t.ip}</span><span>${num(t.count)}</span></div>`).join("");
+    renderAlerts(alerts.items);
+  } catch (e) {
+    setApi(false, "error de API");
+    if (String(e).includes("401") || String(e).includes("403")) { sessionStorage.clear(); token = ""; $("login").style.display = "grid"; }
+  }
+}
+
+const SAMPLES = {
+  ssh: { title: "Multiple failed SSH logins", desc: "25 intentos fallidos de autenticación en 5 minutos", sev: "alta" },
+  "404": { title: "Repeated 404 errors on admin panel", desc: "Ráfaga de errores 404 sobre /wp-admin desde una IP", sev: "baja" },
+  tor: { title: "Outbound connection to Tor exit node", desc: "Conexión saliente hacia un nodo de salida de Tor", sev: "media" },
+};
+
+async function predict() {
+  const btn = $("predict"); btn.disabled = true;
+  try {
+    const body = { title: $("title").value, description: $("desc").value, severity: $("sev").value, source: "wazuh" };
+    const r = await api("/api/v1/triage/predict", { method: "POST", body: JSON.stringify(body) });
+    $("prediction").innerHTML = `
+      <div class="big ${r.verdict}">${r.verdict.replace("_", " ")}</div>
+      <div class="muted">severidad ${r.severity} · confianza ${(r.confidence * 100).toFixed(1)} %</div>
+      <div class="mono muted" style="margin-top:6px">${r.model_name} · ${r.latency_ms} ms</div>`;
+  } catch (e) {
+    $("prediction").textContent = "Error: " + e.message;
+  } finally { btn.disabled = false; }
+}
+
+$("doLogin").onclick = async () => {
+  try { await login(); await loadAll(); }
+  catch (e) { $("loginErr").textContent = e.message; }
+};
+$("refresh").onclick = loadAll;
+$("predict").onclick = predict;
+document.querySelectorAll("[data-s]").forEach(b => b.onclick = () => {
+  const s = SAMPLES[b.dataset.s];
+  $("title").value = s.title; $("desc").value = s.desc; $("sev").value = s.sev; predict();
+});
+
+if (token) loadAll(); else $("login").style.display = "grid";
+</script>
+</body>
+</html>

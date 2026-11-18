@@ -264,3 +264,6 @@ cd backend && python -m ml.train
 # Carga con JMeter (requiere JMeter instalado)
 C:\tools\apache-jmeter-5.6.3\bin\jmeter.bat -n -t loadtest/soclite.jmx -l loadtest/results/run.jtl -e -o loadtest/results/html
 ```
+
+Web de demo: <http://127.0.0.1:8000/demo/> (misma API, sin CORS ni build).
+

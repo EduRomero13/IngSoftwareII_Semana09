@@ -104,13 +104,24 @@ Think time 300–800 ms (lectura) y 500–1000 ms (escritura).
    segundos/minutos del LLM. El modelo es TF-IDF + regresión logística: accuracy 0,945 y
    macro-F1 0,926 sobre el conjunto sintético de prueba.
 
+## Web de demo
+
+Con la API en marcha: <http://127.0.0.1:8000/demo/> (mismo origen, sin build ni CORS).
+
+- Login: `admin` / `Admin123!`.
+- Muestra métricas, tendencia, severidades, top orígenes y últimas alertas de severidad alta.
+- Panel **Clasificador IA**: tres casos precargados y predicción en vivo.
+- Tabla con los resultados de JMeter (A/B) para exponer sin abrir el reporte HTML.
+
+Vista de referencia: [`demo/screenshot.png`](../demo/screenshot.png).
+
 ## Guion de 10 minutos
 
 1. (1 min) `jmeter -v` y árbol del plan en la GUI: 3 grupos, token en setUp.
-2. (2 min) Mostrar los 100k registros en psql y el dashboard con datos.
+2. (2 min) Mostrar los 100k registros en psql y `/demo` con datos en vivo.
 3. (3 min) Corrida JMeter A: throughput, p95, 0 % errores.
 4. (2 min) Crear índices y corrida B: comparar cifras y explicar el hallazgo del punto 2.
-5. (2 min) `ml/metrics.json` + tres predicciones en vivo con `curl`/Swagger.
+5. (2 min) `ml/metrics.json` + tres predicciones en vivo desde `/demo`.
 
 ## Limpieza
 
